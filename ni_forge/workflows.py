@@ -160,7 +160,15 @@ def approve_stage(result,y,approve):
 
 CREATE_ORDER=[0,1,2,3,4,6,5]  # Base, Helmet, Armor, Legs, Boots, Shield, Weapon.
 
-def create_sequential(prompt,look,groups,api,progress,stop,approve=None,checkpoint=None):
+def creation_guide(look,groups):
+    """Fonte visual neutra da criação; nunca é substituída pelo resultado parcial."""
+    ref=reference();out=Outfit(look,copy.deepcopy(groups))
+    for p in out.poses():
+        gp=(min(p[0],max(ref.groups)),p[1]%8,p[2],p[3]%2)
+        out.slots[(*p,0,0)]=ref.get(gp,0).copy();out.slots[(*p,0,1)]=blank()
+    out.metadata={'origin':'creation_pose_guide'};return out
+
+def create_sequential(prompt,look,groups,api,progress,stop,approve=None,checkpoint=None,approve_pose=None):
     """Cria diretamente Base + addons, exibindo e congelando uma peça por vez."""
     if len(prompt.strip())<8:raise ForgeError('Descreva o personagem e seu equipamento no prompt.')
     guide=reference();result=Outfit(look,groups)
@@ -190,17 +198,22 @@ def create_sequential(prompt,look,groups,api,progress,stop,approve=None,checkpoi
                 # Mantém a descrição usada pelas versões anteriores para que uma
                 # retomada aproveite sprites PixelLab já pagos e gravados no cache.
                 def compatible_prompt(p):return request_prefix+pose_descriptions(next(batch for batch in original_batches if p in batch))
-                generated_parts=[api.sprite(compatible_prompt(p),g,c,directions[p[2]]) for p,g,c in zip(pp,pose_guides,context)]
+                generated_parts=[]
+                for p,g,c in zip(pp,pose_guides,context):
+                    new=api.sprite(compatible_prompt(p),g,c,directions[p[2]])
+                    result.slots[(*p,y,0)]=conform_to_guide(new,g);completed+=1
+                    if checkpoint:checkpoint(name,result.copy(),completed,len(ordered))
+                    if batch_index or len(pp)>1:
+                        if approve_pose and approve_pose(name,result.copy(),p,completed,len(ordered)) is False:raise Cancelled(f'{name} {pose_id(p)} rejeitado pelo usuário.')
             else:
                 req=request_prefix+pose_descriptions(pp)
                 refs=[atlas16(pose_guides),atlas16(context)]+([first_style] if first_style is not None else [])
                 generated=api.image(req,refs)
                 if first_style is None:first_style=generated
                 generated_parts=split_generated(generated,16,cols=4,chroma=api.config['background']!='transparent')
-            for p,new,target in zip(pp,generated_parts,pose_guides):
-                result.slots[(*p,y,0)]=conform_to_guide(new,target)
-            completed+=len(pp)
-            if checkpoint:checkpoint(name,result.copy(),completed,len(ordered))
+                for p,new,target in zip(pp,generated_parts,pose_guides):result.slots[(*p,y,0)]=conform_to_guide(new,target)
+                completed+=len(pp)
+                if checkpoint:checkpoint(name,result.copy(),completed,len(ordered))
             if batch_index==0:
                 label=f'{name} · amostra Sul'
                 if approve and approve(label,result.copy()) is False:raise Cancelled(f'Amostra de {name} rejeitada pelo usuário.')

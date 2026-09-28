@@ -57,6 +57,8 @@ As respostas PixelLab concluídas são armazenadas por hash. A cada lote de até
 
 Antes de expandir cada componente, o Forge gera somente a pose principal Sul e pausa. Rejeitar essa amostra encerra a etapa depois de uma única geração; aprová-la autoriza as demais direções, frames e Pattern Z. Ao terminar todas as poses, há uma segunda revisão do componente completo antes de avançar para a próxima peça.
 
+Em **Validação durante a criação**, escolha entre revisar cada resposta PixelLab (padrão), revisar apenas a amostra e o componente completo, ou gerar automaticamente sem pausas. O botão **Baixar checkpoint** permanece disponível durante a tarefa e baixa o estado parcial para reabertura no Forge; esse checkpoint incompleto não é o ZIP final para importar no Studio.
+
 Se a tela ainda mostrar apenas “Chave da API” e `v1.0`, você está executando uma cópia ou `.exe` anterior. Feche o processo antigo e inicie esta pasta novamente; para executável Windows, gere um novo build com `GERAR_EXE_WINDOWS.bat`. A versão correta mostra `v1.1.0-pixellab` no cabeçalho e o destaque **PixelLab API disponível** em Configuração.
 
 **Codex não é uma API de geração de imagens.** O Forge não lê nem reutiliza tokens privados do login do Codex/ChatGPT. A opção informativa explica essa limitação em vez de simular uma integração insegura; escolha OpenAI API ou PixelLab para gerar imagens.

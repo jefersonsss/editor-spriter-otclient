@@ -262,7 +262,7 @@ class ServerTests(unittest.TestCase):
         with FakeProvider() as fake:
             self.j('/api/config',{'provider':'pixellab','pixellab_base_url':fake.url,'pixellab_keys':'empty-credit\nbackup-key','max_calls':200})
             self.j('/api/create',{'prompt':'Cavaleiro isométrico com arma e escudo','look':2004,'idle':1,'walk':1,'z':1});self.wait()
-            s=self.j('/api/state');self.assertEqual(s['result']['metadata']['engine'],'sequential_creation');self.assertTrue(s['validation']['ok'])
+            s=self.j('/api/state');self.assertEqual(s['result']['metadata']['engine'],'sequential_creation');self.assertEqual(s['source']['metadata']['origin'],'creation_pose_guide');self.assertTrue(s['validation']['ok'])
     def test_pixellab_shows_first_sample_before_more_spending(self):
         with FakeProvider() as fake:
             self.j('/api/config',{'provider':'pixellab','pixellab_base_url':fake.url,'pixellab_keys':'backup-key','max_calls':200})
@@ -271,6 +271,10 @@ class ServerTests(unittest.TestCase):
             while time.time()<limit and self.j('/api/job')['status']!='awaiting_approval':time.sleep(.05)
             job=self.j('/api/job');self.assertEqual(job['review_kind'],'sample');self.assertIn('Base',job['stage'])
             self.assertEqual(len([c for c in fake.calls if c[0]=='/generate-image-bitforge']),1)
+            raw,_=self.request('/api/export_checkpoint');self.assertEqual(read_package(raw).look,2008)
+            self.j('/api/approve_stage',{'approved':True})
+            while time.time()<limit and (self.j('/api/job')['status']!='awaiting_approval' or self.j('/api/job').get('review_kind')!='pose'):time.sleep(.05)
+            job=self.j('/api/job');self.assertEqual(job['review_kind'],'pose');self.assertEqual(len([c for c in fake.calls if c[0]=='/generate-image-bitforge']),2)
             self.j('/api/approve_stage',{'approved':False});self.server.state.worker.join(5);self.assertEqual(self.j('/api/job')['status'],'cancelled')
 
 # Mantido separado para não poluir os contratos de produção.

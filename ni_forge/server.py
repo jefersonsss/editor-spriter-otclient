@@ -6,7 +6,7 @@ from pathlib import Path
 import os,sys,json,threading,secrets,base64,time,uuid,mimetypes,webbrowser,traceback
 from .core import *
 from .ai import API,PixelLabAPI,DEFAULTS
-from .workflows import resources,reference,legacy_golden,reproduce_golden,convert_ai,create_sequential
+from .workflows import resources,reference,legacy_golden,reproduce_golden,convert_ai,create_sequential,creation_guide
 
 APP_VERSION='1.1.0-pixellab'
 
@@ -85,12 +85,17 @@ class State:
     def accept_result(self,result):
         with self.lock:self.result=result;self.undo=[];self.revision+=1;self.persist()
     def review_stage(self,name,result):
+        sample='amostra Sul' in name
+        message=(f'Revise a primeira amostra de {name.split(" · ")[0]}. Só depois da aprovação as demais poses serão geradas.' if sample else f'Revise {name} nas poses e animações. Aprove para criar a próxima peça.')
+        return self.wait_review(name,result,message,'sample' if sample else 'component')
+    def review_pose(self,name,result,pose,completed,total):
+        label=f'{name} · pose {completed}/{total}'
+        return self.wait_review(label,result,f'Revise {name} pose {completed}/{total}. Aprove ou rejeite antes da próxima chamada PixelLab.','pose',pose_id(pose))
+    def wait_review(self,name,result,message,kind,pose=None):
         with self.lock:
             if self.project is None:self.new_project(result.copy(),'Prompt em criação')
             self.accept_result(result.copy());self.approval.clear();self.approval_decision=None
-            sample='amostra Sul' in name
-            message=(f'Revise a primeira amostra de {name.split(" · ")[0]}. Só depois da aprovação as demais poses serão geradas.' if sample else f'Revise {name} nas poses e animações. Aprove para criar a próxima peça.')
-            self.job.update(status='awaiting_approval',stage=name,review_kind='sample' if sample else 'component',message=message)
+            self.job.update(status='awaiting_approval',stage=name,review_kind=kind,review_pose=pose,message=message)
         while not self.approval.wait(.2):
             if self.stop.is_set():raise Cancelled('Criação cancelada durante a revisão.')
         if self.stop.is_set():raise Cancelled('Criação cancelada durante a revisão.')
@@ -177,10 +182,14 @@ class State:
                 if self.config['provider']=='openai' and not self.key:raise ForgeError('Configure sua chave OpenAI antes de criar por prompt.')
                 if self.config['provider']=='pixellab' and not self.pixellab_keys:raise ForgeError('Configure ao menos uma chave PixelLab antes de criar por prompt.')
                 groups={1:{'type':0,'frames':idle,'z':nz},2:{'type':1,'frames':walk,'z':nz}}
+                review_mode=str(data.get('review_mode','each'))
+                if review_mode not in ['each','stages','automatic']:raise ForgeError('Modo de revisão inválido.')
                 if self.config['provider']=='codex':raise ForgeError('Codex não gera imagens para aplicativos. Selecione PixelLab ou OpenAI API.')
                 def task():
-                    api=self.api();out=create_sequential(prompt,look,groups,api,self.progress,self.stop,self.review_stage,self.checkpoint_stage)
-                    with self.lock:self.source=out.copy();self.title='Prompt: '+prompt[:70]
+                    self.new_project(creation_guide(look,groups),'Prompt: '+prompt[:70])
+                    stage_review=None if review_mode=='automatic' else self.review_stage
+                    pose_review=self.review_pose if review_mode=='each' else None
+                    api=self.api();out=create_sequential(prompt,look,groups,api,self.progress,self.stop,stage_review,self.checkpoint_stage,pose_review)
                     self.accept_result(out)
                 self.start('Criando novo outfit por prompt',task);return {'ok':True}
             if path in ['/api/edit','/api/undo','/api/save_project','/api/rename']:
@@ -256,6 +265,11 @@ class Handler(BaseHTTPRequestHandler):
                 self.state.free()
                 if self.state.result is None:raise ForgeError('Nenhum resultado para exportar.')
                 p=self.state.root/'downloads'/f'outfit_{self.state.result.look}_modular.zip';write_package(self.state.result,p,self.state.source)
+                return self.send(200,p.read_bytes(),'application/zip',{'Content-Disposition':f'attachment; filename="{p.name}"'})
+        if path=='/api/export_checkpoint':
+            with self.state.lock:
+                if self.state.result is None:raise ForgeError('Nenhum checkpoint disponível.')
+                p=self.state.root/'downloads'/f'outfit_{self.state.result.look}_checkpoint.zip';write_source(self.state.result,p)
                 return self.send(200,p.read_bytes(),'application/zip',{'Content-Disposition':f'attachment; filename="{p.name}"'})
         if path=='/api/report':
             if self.state.result is None:raise ForgeError('Nenhum resultado para validar.')
