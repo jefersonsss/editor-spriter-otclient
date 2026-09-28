@@ -182,10 +182,15 @@ def create_sequential(prompt,look,groups,api,progress,stop,approve=None):
             instruction=('Create ONLY Base as a clean unarmored character' if y==0 else f'Create ONLY {name} equipment')
             req=(GRID_PROMPT+f'\n{instruction}. DESIGN: {prompt}. EDIT the supplied pose guides: preserve their exact diagonal/isometric posture, facing direction, silhouette, occupied pixels, scale and bottom-right anchor. '
                  'Frames are animation phases, NEVER camera rotation. Preserve exactly the same character identity, palette and materials shown in the locked context. Never redraw or modify locked components; every unrelated pixel must be transparent.\nCELLS: '+pose_descriptions(pp))
-            refs=[atlas16(pose_guides),atlas16(context)]+([first_style] if first_style is not None else [])
-            generated=api.image(req,refs)
-            if first_style is None:first_style=generated
-            for p,new,target in zip(pp,split_generated(generated,16,cols=4,chroma=api.config['background']!='transparent'),pose_guides):
+            if hasattr(api,'sprite'):
+                directions=['north','east','south','west']
+                generated_parts=[api.sprite(req,g,c,directions[p[2]]) for p,g,c in zip(pp,pose_guides,context)]
+            else:
+                refs=[atlas16(pose_guides),atlas16(context)]+([first_style] if first_style is not None else [])
+                generated=api.image(req,refs)
+                if first_style is None:first_style=generated
+                generated_parts=split_generated(generated,16,cols=4,chroma=api.config['background']!='transparent')
+            for p,new,target in zip(pp,generated_parts,pose_guides):
                 result.slots[(*p,y,0)]=conform_to_guide(new,target)
         if slot_fingerprint(result,locked)!=before:raise ForgeError('A geração alterou componentes já aprovados.')
         approvals[name]=approve_stage(result,y,approve);locked.append(y)

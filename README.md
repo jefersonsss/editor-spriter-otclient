@@ -51,6 +51,10 @@ O programa cria arte nova e usa a base Golden em tons neutros como guia de pose.
 
 Em **Configuração**, informe sua chave, salve e teste a conexão. A chave permanece na memória da sessão; os arquivos de configuração e os ZIPs não a incluem. Como alternativa, defina `OPENAI_API_KEY` no ambiente antes de iniciar. A assinatura do ChatGPT não fornece automaticamente acesso pago à API.
 
+Para criação de sprites também é possível selecionar **PixelLab API** e informar uma ou mais chaves, uma por linha. O Forge usa BitForge em 64×64 com guia isométrico e, em erros de autenticação, crédito, cota ou limite, tenta a próxima chave sem registrar nenhuma delas em disco. Na CLI, use `PIXELLAB_API_KEYS=chave1,chave2`. PixelLab não substitui a análise visual estruturada necessária para converter outfits antigos.
+
+**Codex não é uma API de geração de imagens.** O Forge não lê nem reutiliza tokens privados do login do Codex/ChatGPT. A opção informativa explica essa limitação em vez de simular uma integração insegura; escolha OpenAI API ou PixelLab para gerar imagens.
+
 Os modelos iniciais configuráveis são `gpt-4.1` para análise visual estruturada e `gpt-image-1.5` para geração/edição de imagens. A conta precisa ter acesso aos modelos. O teste de conexão lista modelos; a autorização para gerar imagens é verificada no uso. O aplicativo usa requisições HTTP reais, sem depender da sessão do ChatGPT.
 
 O endpoint padrão é `https://api.openai.com/v1`. Provedores alternativos precisam oferecer os mesmos contratos: `/responses` com imagens e JSON Schema estrito, `/images/edits` multipart com uma ou mais `image[]`, `/images/generations` e PNG em `b64_json`. A escolha de endpoint envia a chave a esse provedor.
