@@ -88,13 +88,21 @@ class State:
         with self.lock:
             if self.project is None:self.new_project(result.copy(),'Prompt em criação')
             self.accept_result(result.copy());self.approval.clear();self.approval_decision=None
-            self.job.update(status='awaiting_approval',stage=name,message=f'Revise {name} nas poses e animações. Aprove para criar a próxima peça.')
+            sample='amostra Sul' in name
+            message=(f'Revise a primeira amostra de {name.split(" · ")[0]}. Só depois da aprovação as demais poses serão geradas.' if sample else f'Revise {name} nas poses e animações. Aprove para criar a próxima peça.')
+            self.job.update(status='awaiting_approval',stage=name,review_kind='sample' if sample else 'component',message=message)
         while not self.approval.wait(.2):
             if self.stop.is_set():raise Cancelled('Criação cancelada durante a revisão.')
         if self.stop.is_set():raise Cancelled('Criação cancelada durante a revisão.')
         with self.lock:
             accepted=self.approval_decision;self.job.update(status='running',message=f'{name} aprovado. Criando próxima etapa…')
         return accepted
+    def checkpoint_stage(self,name,result,completed,total):
+        """Publica e persiste lotes concluídos sem confundi-los com aprovação."""
+        with self.lock:
+            if self.project is None:self.new_project(result.copy(),'Prompt em criação')
+            else:self.accept_result(result.copy())
+            self.progress(None,f'Checkpoint salvo: {name} · {completed}/{total} poses. Uma retomada reutilizará o cache.')
     def action(self,path,data):
         if path=='/api/cancel':self.stop.set();self.approval.set();return {'ok':True,'message':'Cancelamento solicitado. Uma requisição já enviada terminará antes de parar.'}
         if path=='/api/approve_stage':
@@ -171,7 +179,7 @@ class State:
                 groups={1:{'type':0,'frames':idle,'z':nz},2:{'type':1,'frames':walk,'z':nz}}
                 if self.config['provider']=='codex':raise ForgeError('Codex não gera imagens para aplicativos. Selecione PixelLab ou OpenAI API.')
                 def task():
-                    api=self.api();out=create_sequential(prompt,look,groups,api,self.progress,self.stop,self.review_stage)
+                    api=self.api();out=create_sequential(prompt,look,groups,api,self.progress,self.stop,self.review_stage,self.checkpoint_stage)
                     with self.lock:self.source=out.copy();self.title='Prompt: '+prompt[:70]
                     self.accept_result(out)
                 self.start('Criando novo outfit por prompt',task);return {'ok':True}

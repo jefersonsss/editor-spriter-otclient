@@ -123,26 +123,36 @@ class PixelLabAPI:
     def _request(self,path,payload=None,method='POST'):
         self.check();last=''
         for offset in range(len(self.keys)):
-            if self.calls>=int(self.config['max_calls']):raise ForgeError('Limite de chamadas PixelLab atingido.')
             idx=(self.key_index+offset)%len(self.keys);key=self.keys[idx]
             data=None if payload is None else json.dumps(payload).encode()
-            req=Request(self.config['pixellab_base_url'].rstrip('/')+path,data=data,headers={'Authorization':'Bearer '+key,'Content-Type':'application/json'},method=method)
-            self.calls+=1;self.progress(f'PixelLab: chamada {self.calls} · chave {idx+1}/{len(self.keys)} · {path}')
-            try:
-                with urlopen(req,timeout=int(self.config['timeout']),context=ssl.create_default_context()) as response:result=json.loads(response.read(20*1024**2))
-                self.key_index=idx
-                if 'usage' in result:self.usage.append(result['usage'])
-                return result
-            except HTTPError as e:
-                raw=e.read(10000).decode(errors='replace')
-                try:last=str(json.loads(raw).get('detail',raw))
-                except Exception:last=raw
-                for secret in self.keys:last=last.replace(secret,'[CHAVE OMITIDA]')
-                # Autorização, crédito, cota ou rate limit: tenta a próxima chave.
-                if e.code in (401,402,403,429):continue
-                raise ForgeError(f'PixelLab HTTP {e.code}: {last[:1200]}') from None
-            except (URLError,TimeoutError) as e:raise ForgeError('Falha de rede ou timeout na PixelLab.') from e
-        raise ForgeError('Todas as chaves PixelLab falharam, estão sem crédito ou atingiram o limite: '+last[:1000])
+            for attempt in range(3):
+                if self.calls>=int(self.config['max_calls']):raise ForgeError('Limite de chamadas PixelLab atingido.')
+                req=Request(self.config['pixellab_base_url'].rstrip('/')+path,data=data,headers={'Authorization':'Bearer '+key,'Content-Type':'application/json'},method=method)
+                self.calls+=1;self.progress(f'PixelLab: chamada {self.calls} · chave {idx+1}/{len(self.keys)} · {path}'+(f' · tentativa {attempt+1}/3' if attempt else ''))
+                try:
+                    with urlopen(req,timeout=int(self.config['timeout']),context=ssl.create_default_context()) as response:result=json.loads(response.read(20*1024**2))
+                    self.key_index=idx
+                    if 'usage' in result:self.usage.append(result['usage'])
+                    return result
+                except HTTPError as e:
+                    raw=e.read(10000).decode(errors='replace')
+                    try:last=str(json.loads(raw).get('detail',raw))
+                    except Exception:last=raw
+                    for secret in self.keys:last=last.replace(secret,'[CHAVE OMITIDA]')
+                    if e.code in (500,502,503,504) and attempt<2:
+                        self.progress(f'PixelLab temporariamente indisponível (HTTP {e.code}); nova tentativa automática.')
+                        for _ in range(10*(attempt+1)):self.check();time.sleep(.1)
+                        continue
+                    # Autorização, crédito, cota, rate limit ou 5xx persistente: próxima chave.
+                    if e.code in (401,402,403,429,500,502,503,504):break
+                    raise ForgeError(f'PixelLab HTTP {e.code}: {last[:1200]}') from None
+                except (URLError,TimeoutError):
+                    last='Falha de rede ou timeout na PixelLab.'
+                    if attempt<2:
+                        for _ in range(10*(attempt+1)):self.check();time.sleep(.1)
+                        continue
+                    break
+        raise ForgeError('Todas as chaves PixelLab falharam, estão sem crédito ou atingiram o limite. O progresso concluído está no cache; repita o mesmo pedido para retomar. Detalhe: '+last[:900])
     def models(self):
         balances=[]
         original=self.key_index
@@ -159,7 +169,7 @@ class PixelLabAPI:
         payload={'description':prompt,'image_size':{'width':64,'height':64},'negative_description':'background, shadow, text, blur, anti-aliasing, wrong pose, extra limbs','text_guidance_scale':8,'extra_guidance_scale':8,'style_strength':75,'no_background':True,'seed':0,'outline':'selective outline','shading':'medium shading','detail':'highly detailed','view':'high top-down','direction':direction,'isometric':True,'oblique_projection':False,'coverage_percentage':65,'init_image':encoded(guide),'init_image_strength':850,'style_image':encoded(context) if context[:,:,3].any() else None}
         request={'endpoint':self.config['pixellab_base_url'],'payload':payload}
         h=hashlib.sha256(json.dumps(request,sort_keys=True).encode()).hexdigest();p=self.cache/(h+'.json')
-        if p.exists():self.hits+=1;result=json.loads(p.read_text())
+        if p.exists():self.hits+=1;self.progress(f'PixelLab: sprite recuperado do cache ({self.hits})');result=json.loads(p.read_text())
         else:
             result=self._request('/generate-image-bitforge',payload);tmp=p.with_suffix('.tmp');tmp.write_text(json.dumps(result));tmp.replace(p)
         try:a=decode_png(base64.b64decode(result['image']['base64'],validate=True))

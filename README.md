@@ -53,6 +53,10 @@ Em **Configuração**, informe sua chave, salve e teste a conexão. A chave perm
 
 Para criação de sprites também é possível selecionar **PixelLab API** e informar uma ou mais chaves, uma por linha. O Forge usa BitForge em 64×64 com guia isométrico e, em erros de autenticação, crédito, cota ou limite, tenta a próxima chave sem registrar nenhuma delas em disco. Na CLI, use `PIXELLAB_API_KEYS=chave1,chave2`. PixelLab não substitui a análise visual estruturada necessária para converter outfits antigos.
 
+As respostas PixelLab concluídas são armazenadas por hash. A cada lote de até 16 poses, o resultado parcial também é salvo no projeto. Erros temporários HTTP 500/502/503/504 são tentados novamente e, se persistirem, passam para a próxima chave. Se a tarefa ainda parar, mantenha exatamente o mesmo prompt, frames, Pattern Z e configurações e clique novamente em criar: as poses já concluídas serão recuperadas do cache, sem repetir as respectivas chamadas pagas.
+
+Antes de expandir cada componente, o Forge gera somente a pose principal Sul e pausa. Rejeitar essa amostra encerra a etapa depois de uma única geração; aprová-la autoriza as demais direções, frames e Pattern Z. Ao terminar todas as poses, há uma segunda revisão do componente completo antes de avançar para a próxima peça.
+
 Se a tela ainda mostrar apenas “Chave da API” e `v1.0`, você está executando uma cópia ou `.exe` anterior. Feche o processo antigo e inicie esta pasta novamente; para executável Windows, gere um novo build com `GERAR_EXE_WINDOWS.bat`. A versão correta mostra `v1.1.0-pixellab` no cabeçalho e o destaque **PixelLab API disponível** em Configuração.
 
 **Codex não é uma API de geração de imagens.** O Forge não lê nem reutiliza tokens privados do login do Codex/ChatGPT. A opção informativa explica essa limitação em vez de simular uma integração insegura; escolha OpenAI API ou PixelLab para gerar imagens.

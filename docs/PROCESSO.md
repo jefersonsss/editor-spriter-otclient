@@ -23,7 +23,7 @@ O Golden possui 128 poses, sete linhas e duas camadas: 1.792 quadros e 7.168 ref
 
 ## Criação por prompt
 
-Usa as silhuetas validadas do Golden como contrato geométrico. Em vez de gerar um FULL para depois tentar separá-lo, cria diretamente a Base e um addon por vez. Cada atlas agrupa as quatro direções por frame para que animação não seja confundida com rotação. A IA fornece cores e desenho, mas a etapa local reconforma o alpha à silhueta do guia; pose diagonal/isométrica, direção, escala e âncora não ficam a critério do modelo. Os componentes aprovados são enviados como contexto visual bloqueado e cada etapa pausa para revisão humana.
+Usa as silhuetas validadas do Golden como contrato geométrico. Em vez de gerar um FULL para depois tentar separá-lo, cria diretamente a Base e um addon por vez. Para cada componente, gera primeiro somente a pose principal Sul e exige aprovação humana antes de gastar chamadas com as poses restantes. Depois expande o design aprovado, reconforma o alpha à silhueta do guia e apresenta o componente completo para uma segunda revisão. Pose diagonal/isométrica, direção, escala e âncora não ficam a critério do modelo.
 
 A grade rígida é uma exigência enviada à API, não uma garantia matemática de que o modelo desenhará corretamente. Formato/dimensões são verificados; anatomia, coerência de animação, segmentação e detalhes artísticos exigem inspeção das prévias. O aplicativo permite editar PNGs nativos sem alterar outros frames.
 

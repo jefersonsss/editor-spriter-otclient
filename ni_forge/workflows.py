@@ -160,42 +160,56 @@ def approve_stage(result,y,approve):
 
 CREATE_ORDER=[0,1,2,3,4,6,5]  # Base, Helmet, Armor, Legs, Boots, Shield, Weapon.
 
-def create_sequential(prompt,look,groups,api,progress,stop,approve=None):
+def create_sequential(prompt,look,groups,api,progress,stop,approve=None,checkpoint=None):
     """Cria diretamente Base + addons, exibindo e congelando uma peça por vez."""
     if len(prompt.strip())<8:raise ForgeError('Descreva o personagem e seu equipamento no prompt.')
     guide=reference();result=Outfit(look,groups)
     for p in result.poses():
         for y in range(7):result.slots[(*p,y,0)]=blank();result.slots[(*p,y,1)]=blank()
-    locked=[];approvals={}
+    locked=[];approvals={};sample_approvals={}
     for step,y in enumerate(CREATE_ORDER):
         name=PARTS[y];before=slot_fingerprint(result,locked);first_style=None
-        # Cada atlas contém as quatro direções do mesmo frame. Isso impede que a
-        # sequência de animação seja interpretada como uma rotação do personagem.
+        # A primeira chamada cria somente a pose Sul principal. O usuário valida
+        # o design antes de autorizar o custo das demais poses do componente.
         ordered=sorted(result.poses(),key=lambda p:(p[0],p[3],p[1],p[2]))
-        for start in range(0,len(ordered),16):
-            pp=ordered[start:start+16]
+        original_batches=[ordered[i:i+16] for i in range(0,len(ordered),16)]
+        sample=next((p for p in ordered if p[0]==min(result.groups) and p[1]==0 and p[2]==2 and p[3]==0),ordered[0])
+        remaining=[p for p in ordered if p!=sample]
+        batches=[[sample]]+[remaining[i:i+16] for i in range(0,len(remaining),16)];completed=0
+        for batch_index,pp in enumerate(batches):
             check_stop(stop);pose_guides=[];context=[]
             for p in pp:
                 gp=(min(p[0],max(guide.groups)),p[1]%8,p[2],p[3]%2)
                 target=guide.get(gp,y if y else 0);pose_guides.append(target)
                 context.append(result.full(p))
             instruction=('Create ONLY Base as a clean unarmored character' if y==0 else f'Create ONLY {name} equipment')
-            req=(GRID_PROMPT+f'\n{instruction}. DESIGN: {prompt}. EDIT the supplied pose guides: preserve their exact diagonal/isometric posture, facing direction, silhouette, occupied pixels, scale and bottom-right anchor. '
-                 'Frames are animation phases, NEVER camera rotation. Preserve exactly the same character identity, palette and materials shown in the locked context. Never redraw or modify locked components; every unrelated pixel must be transparent.\nCELLS: '+pose_descriptions(pp))
+            request_prefix=(GRID_PROMPT+f'\n{instruction}. DESIGN: {prompt}. EDIT the supplied pose guides: preserve their exact diagonal/isometric posture, facing direction, silhouette, occupied pixels, scale and bottom-right anchor. '
+                 'Frames are animation phases, NEVER camera rotation. Preserve exactly the same character identity, palette and materials shown in the locked context. Never redraw or modify locked components; every unrelated pixel must be transparent.\nCELLS: ')
             if hasattr(api,'sprite'):
                 directions=['north','east','south','west']
-                generated_parts=[api.sprite(req,g,c,directions[p[2]]) for p,g,c in zip(pp,pose_guides,context)]
+                # Mantém a descrição usada pelas versões anteriores para que uma
+                # retomada aproveite sprites PixelLab já pagos e gravados no cache.
+                def compatible_prompt(p):return request_prefix+pose_descriptions(next(batch for batch in original_batches if p in batch))
+                generated_parts=[api.sprite(compatible_prompt(p),g,c,directions[p[2]]) for p,g,c in zip(pp,pose_guides,context)]
             else:
+                req=request_prefix+pose_descriptions(pp)
                 refs=[atlas16(pose_guides),atlas16(context)]+([first_style] if first_style is not None else [])
                 generated=api.image(req,refs)
                 if first_style is None:first_style=generated
                 generated_parts=split_generated(generated,16,cols=4,chroma=api.config['background']!='transparent')
             for p,new,target in zip(pp,generated_parts,pose_guides):
                 result.slots[(*p,y,0)]=conform_to_guide(new,target)
+            completed+=len(pp)
+            if checkpoint:checkpoint(name,result.copy(),completed,len(ordered))
+            if batch_index==0:
+                label=f'{name} · amostra Sul'
+                if approve and approve(label,result.copy()) is False:raise Cancelled(f'Amostra de {name} rejeitada pelo usuário.')
+                sample_approvals[name]={'approved_by':'user' if approve else 'non_interactive','pose':pose_id(sample),'sha256':slot_fingerprint(result,[y])}
+                progress(int(step*95/7),f'Amostra de {name} aprovada; gerando as {len(remaining)} poses restantes')
         if slot_fingerprint(result,locked)!=before:raise ForgeError('A geração alterou componentes já aprovados.')
         approvals[name]=approve_stage(result,y,approve);locked.append(y)
         progress(int((step+1)*95/7),f'{name} aprovado e bloqueado')
-    result.metadata={'engine':'sequential_creation','prompt':prompt,'stage_approvals':approvals,'composition':'python_rgba_base_then_y1_to_y6'}
+    result.metadata={'engine':'sequential_creation','prompt':prompt,'sample_approvals':sample_approvals,'stage_approvals':approvals,'composition':'python_rgba_base_then_y1_to_y6'}
     report=validate(result)
     if not report['ok']:raise ForgeError('Resultado não passou na validação: '+'; '.join(report['errors'][:4]))
     progress(100,'Outfit criado por etapas e composto em Python.');return result

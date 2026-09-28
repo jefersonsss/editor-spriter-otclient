@@ -36,7 +36,8 @@ class ProviderHandler(BaseHTTPRequestHandler):
         raw=self.rfile.read(int(self.headers['Content-Length']));ctype=self.headers['Content-Type']
         auth=self.headers['Authorization']
         if auth=='Bearer empty-credit':self.send({'detail':'Insufficient credits'},402);return
-        assert auth in ['Bearer test-key','Bearer backup-key']
+        if auth=='Bearer flaky-key' and not getattr(self.server,'flaky_failed',False):self.server.flaky_failed=True;self.send({'detail':'Inference stream ended without producing a result.'},502);return
+        assert auth in ['Bearer test-key','Bearer backup-key','Bearer flaky-key']
         if self.path=='/responses':
             body=json.loads(raw);self.server.calls.append((self.path,body));fmt=body['text']['format'];assert fmt['strict'] and fmt['type']=='json_schema'
             if fmt['name']=='stage_review':answer={'approved':True,'identity_preserved':True,'fit_coherent':True,'directions_coherent':True,'notes':['Fixture HTTP; não é análise artística real.']}
@@ -177,6 +178,29 @@ class APITests(unittest.TestCase):
         guide=synthetic().get((1,0,0,0));out=api.sprite('cavaleiro',guide,blank(),'south')
         self.assertEqual(out.shape,(64,64,4));self.assertEqual(api.key_index,1)
         calls=[c for c in self.fake.calls if c[0]=='/generate-image-bitforge'];self.assertEqual(len(calls),1);self.assertEqual(api.calls,2)
+    def test_pixellab_retries_transient_502(self):
+        api=PixelLabAPI({'pixellab_base_url':self.fake.url},['flaky-key'],self.temp.name,self.stop)
+        out=api.sprite('cavaleiro resiliente',synthetic().get((1,0,0,0)),blank(),'south')
+        self.assertEqual(out.shape,(64,64,4));self.assertEqual(api.calls,2)
+    def test_sequential_creation_emits_batch_checkpoints(self):
+        class Failing:
+            config={'background':'transparent'}
+            def __init__(self):self.calls=0
+            def sprite(self,prompt,guide,context,direction):
+                self.calls+=1
+                if self.calls==10:raise ForgeError('falha simulada')
+                return guide.copy()
+        groups={1:{'type':0,'frames':1,'z':1},2:{'type':1,'frames':1,'z':1}};saved=[]
+        with self.assertRaises(ForgeError):create_sequential('Cavaleiro consistente',2006,groups,Failing(),lambda *_:None,self.stop,checkpoint=lambda name,out,done,total:saved.append((name,done,total,out)))
+        self.assertEqual(saved[0][:3],('Base',1,8));self.assertTrue(saved[0][3].get((1,0,2,0),0)[:,:,3].any())
+    def test_rejected_sample_stops_after_first_paid_sprite(self):
+        class Counting:
+            config={'background':'transparent'}
+            def __init__(self):self.calls=0
+            def sprite(self,prompt,guide,context,direction):self.calls+=1;return guide.copy()
+        api=Counting();groups={1:{'type':0,'frames':1,'z':1},2:{'type':1,'frames':1,'z':1}}
+        with self.assertRaises(Cancelled):create_sequential('Cavaleiro para amostra',2007,groups,api,lambda *_:None,self.stop,approve=lambda *_:False)
+        self.assertEqual(api.calls,1)
     def test_cancel(self):
         self.stop.set()
         with self.assertRaises(Cancelled):self.api.models()
@@ -239,6 +263,15 @@ class ServerTests(unittest.TestCase):
             self.j('/api/config',{'provider':'pixellab','pixellab_base_url':fake.url,'pixellab_keys':'empty-credit\nbackup-key','max_calls':200})
             self.j('/api/create',{'prompt':'Cavaleiro isométrico com arma e escudo','look':2004,'idle':1,'walk':1,'z':1});self.wait()
             s=self.j('/api/state');self.assertEqual(s['result']['metadata']['engine'],'sequential_creation');self.assertTrue(s['validation']['ok'])
+    def test_pixellab_shows_first_sample_before_more_spending(self):
+        with FakeProvider() as fake:
+            self.j('/api/config',{'provider':'pixellab','pixellab_base_url':fake.url,'pixellab_keys':'backup-key','max_calls':200})
+            self.j('/api/create',{'prompt':'Cavaleiro para aprovar primeiro','look':2008,'idle':1,'walk':1,'z':1})
+            limit=time.time()+10
+            while time.time()<limit and self.j('/api/job')['status']!='awaiting_approval':time.sleep(.05)
+            job=self.j('/api/job');self.assertEqual(job['review_kind'],'sample');self.assertIn('Base',job['stage'])
+            self.assertEqual(len([c for c in fake.calls if c[0]=='/generate-image-bitforge']),1)
+            self.j('/api/approve_stage',{'approved':False});self.server.state.worker.join(5);self.assertEqual(self.j('/api/job')['status'],'cancelled')
 
 # Mantido separado para não poluir os contratos de produção.
 from urllib.parse import urlencode
