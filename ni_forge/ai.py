@@ -17,7 +17,6 @@ POLYGON=arr(POINT)
 REGION=obj({'piece':{'type':'string','enum':['skin','Helmet','Armor','Legs','Boots','Weapon','Shield']},'polygons':arr(POLYGON)})
 BOX=obj({'piece':{'type':'string','enum':['Helmet','Armor','Legs','Boots','Weapon','Shield']},'x':I,'y':I,'width':I,'height':I})
 ANALYSIS_SCHEMA=obj({'poses':arr(obj({'id':S,'confidence':N,'complete':B,'description':S,'regions':arr(REGION),'isolated_addons':arr(obj({'source_y':I,'piece':{'type':'string','enum':['Helmet','Armor','Legs','Boots','Weapon','Shield','mixed','unknown']},'confidence':N})),'missing_pieces':arr(S),'attachment_boxes':arr(BOX),'notes':S}))})
-QC_SCHEMA=obj({'base_clean':B,'pieces_fit':B,'directions_coherent':B,'needs_revision':B,'notes':arr(S)})
 
 ANALYZE_PROMPT='''Você é um artista técnico de pixel art Tibia/New Island. Analise os quadros visuais fornecidos.
 Cada linha é uma POSE; as colunas são: fonte Y0 antiga, addon Y1 antigo, addon Y2 antigo, FULL composto.
