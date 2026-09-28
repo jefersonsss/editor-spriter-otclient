@@ -213,6 +213,11 @@ class ServerTests(unittest.TestCase):
             self.j('/api/config',{'key':'test-key','base_url':fake.url});self.j('/api/create',{'prompt':'Cavaleiro de bronze com arma e escudo','look':2003,'idle':1,'walk':1,'z':1});self.wait();s=self.j('/api/state');self.assertTrue(s['validation']['ok']);self.assertEqual(s['result']['look'],2003)
             self.assertEqual(list(s['result']['metadata']['stage_approvals']),['Base','Helmet','Armor','Legs','Boots','Shield','Weapon'])
             self.assertTrue(all(v['approved_by']=='user' for v in s['result']['metadata']['stage_approvals'].values()))
+            # A IA fornece o desenho, mas nunca pode trocar pose, direção ou âncora.
+            out=self.server.state.result;guide=reference()
+            for p in out.poses():
+                gp=(min(p[0],max(guide.groups)),p[1]%8,p[2],p[3]%2)
+                for y in range(7):self.assertTrue(np.array_equal(out.get(p,y)[:,:,3]>0,guide.get(gp,y)[:,:,3]>0),(p,y))
 
 # Mantido separado para não poluir os contratos de produção.
 from urllib.parse import urlencode

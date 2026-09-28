@@ -121,6 +121,28 @@ def align_new(art,target):
     x=tx0+(tx1-tx0-w)//2;y=ty1-h;out=blank();out[y:y+h,x:x+w]=tile
     return binary(out)
 
+def conform_to_guide(art,guide):
+    """Transfere a arte para a silhueta validada sem alterar pose ou orientação."""
+    target=guide[:,:,3]>0
+    source=art[:,:,3]>0
+    def axis(mask):
+        ys,xs=np.where(mask)
+        if len(xs)<2:return 0.0
+        values,vectors=np.linalg.eigh(np.cov(np.stack([xs,ys])))
+        v=vectors[:,int(np.argmax(values))];return math.atan2(v[1],v[0])
+    # O modelo tende a devolver personagens verticais. Gira primeiro a textura
+    # para o eixo isométrico do guia e só então ajusta tamanho/âncora.
+    delta=math.degrees((axis(target)-axis(source)+math.pi/2)%math.pi-math.pi/2)
+    rotated=rgba(Image.fromarray(art).rotate(delta,Image.Resampling.NEAREST,expand=True))
+    fitted=align_new(rotated,target);visible=fitted[:,:,3]>0
+    if not visible.any() or not target.any():raise ForgeError('A geração não contém arte utilizável para a pose validada.')
+    # Preenche toda a silhueta com a cor do pixel gerado mais próximo. A geometria,
+    # direção e âncora vêm exclusivamente do sprite compatível usado como guia.
+    _,indices=ndi.distance_transform_edt(~visible,return_indices=True)
+    out=blank();ys,xs=np.where(target);sy=indices[0][ys,xs];sx=indices[1][ys,xs]
+    out[ys,xs,:3]=fitted[sy,sx,:3];out[ys,xs,3]=255
+    return out
+
 def slot_fingerprint(result,ys):
     """Hash dos slots aprovados; torna qualquer alteração posterior detectável."""
     import hashlib
@@ -147,20 +169,24 @@ def create_sequential(prompt,look,groups,api,progress,stop,approve=None):
     locked=[];approvals={}
     for step,y in enumerate(CREATE_ORDER):
         name=PARTS[y];before=slot_fingerprint(result,locked);first_style=None
-        for pp in generation_batches(result.poses()):
+        # Cada atlas contém as quatro direções do mesmo frame. Isso impede que a
+        # sequência de animação seja interpretada como uma rotação do personagem.
+        ordered=sorted(result.poses(),key=lambda p:(p[0],p[3],p[1],p[2]))
+        for start in range(0,len(ordered),16):
+            pp=ordered[start:start+16]
             check_stop(stop);pose_guides=[];context=[]
             for p in pp:
                 gp=(min(p[0],max(guide.groups)),p[1]%8,p[2],p[3]%2)
                 target=guide.get(gp,y if y else 0);pose_guides.append(target)
                 context.append(result.full(p))
             instruction=('Create ONLY Base as a clean unarmored character' if y==0 else f'Create ONLY {name} equipment')
-            req=(GRID_PROMPT+f'\n{instruction}. DESIGN: {prompt}. Preserve exactly the same character identity, palette, materials, pixel scale, anatomy and anchors shown in the locked context. '
-                 'Never redraw or modify locked components; every unrelated pixel must be transparent.\nCELLS: '+pose_descriptions(pp))
+            req=(GRID_PROMPT+f'\n{instruction}. DESIGN: {prompt}. EDIT the supplied pose guides: preserve their exact diagonal/isometric posture, facing direction, silhouette, occupied pixels, scale and bottom-right anchor. '
+                 'Frames are animation phases, NEVER camera rotation. Preserve exactly the same character identity, palette and materials shown in the locked context. Never redraw or modify locked components; every unrelated pixel must be transparent.\nCELLS: '+pose_descriptions(pp))
             refs=[atlas16(pose_guides),atlas16(context)]+([first_style] if first_style is not None else [])
             generated=api.image(req,refs)
             if first_style is None:first_style=generated
             for p,new,target in zip(pp,split_generated(generated,16,cols=4,chroma=api.config['background']!='transparent'),pose_guides):
-                result.slots[(*p,y,0)]=align_new(new,ndi.binary_dilation(target[:,:,3]>0,iterations=3))
+                result.slots[(*p,y,0)]=conform_to_guide(new,target)
         if slot_fingerprint(result,locked)!=before:raise ForgeError('A geração alterou componentes já aprovados.')
         approvals[name]=approve_stage(result,y,approve);locked.append(y)
         progress(int((step+1)*95/7),f'{name} aprovado e bloqueado')

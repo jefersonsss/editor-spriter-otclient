@@ -120,7 +120,7 @@ Na CLI, forneça a chave por `OPENAI_API_KEY`. A configuração da interface é 
 
 `ni_forge/core.py` trata o formato, composição, recortes de tiles e validação. `workflows.py` contém os dois motores. `ai.py` implementa os contratos HTTP e cache. `server.py` fornece a interface local. `static/` contém HTML/CSS/JavaScript sem CDN. `data/` inclui referências e receita. `tests/` verifica os fluxos.
 
-O Golden é uma reprodução determinística; ela foi comparada com todos os quadros da referência fornecida. Na criação, a IA produz Base, Helmet, Armor, Legs, Boots, Shield e Weapon separadamente. A interface pausa depois de cada peça para o usuário revisar poses e animações; somente a aprovação libera a próxima etapa. Sprites aprovados são bloqueados por hash e reutilizados como contexto visual, sem serem redesenhados. Ao final, o Python compõe o FULL.
+O Golden é uma reprodução determinística; ela foi comparada com todos os quadros da referência fornecida. Na criação, a IA produz Base, Helmet, Armor, Legs, Boots, Shield e Weapon separadamente. A geometria validada determina obrigatoriamente a silhueta, pose diagonal/isométrica, direção, escala e âncora; a IA fornece o desenho e as cores, sem poder transformar frames em giros do personagem. A interface pausa depois de cada peça para revisão. Sprites aprovados são bloqueados por hash e, ao final, o Python compõe o FULL.
 
 Veja [docs/VALIDACAO.md](docs/VALIDACAO.md) para a cobertura efetivamente executada e [docs/PROCESSO.md](docs/PROCESSO.md) para o tratamento da geometria.
 
