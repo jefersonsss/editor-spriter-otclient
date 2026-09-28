@@ -205,7 +205,8 @@ class ServerTests(unittest.TestCase):
         with self.assertRaises(HTTPError) as e:self.request('/api/state',auth=False)
         self.assertEqual(e.exception.code,403)
         with self.assertRaises(HTTPError):self.request('/api/state',headers={'Origin':'https://elsewhere.invalid'})
-        raw,h=self.request('/');self.assertIn(self.server.state.token.encode(),raw);self.assertIn(b'/static/app.js',raw);self.assertIn("frame-ancestors 'none'",h['Content-Security-Policy'])
+        raw,h=self.request('/');self.assertIn(self.server.state.token.encode(),raw);self.assertIn(b'/static/app.js?v=1.1.0-pixellab',raw);self.assertIn(b'PixelLab API dispon',raw);self.assertIn("frame-ancestors 'none'",h['Content-Security-Policy'])
+        self.assertEqual(self.j('/api/state')['version'],'1.1.0-pixellab')
     def test_offline_job_export_edit_undo_reopen(self):
         self.j('/api/golden',{'look':2400});self.wait();s=self.j('/api/state');self.assertEqual(s['result']['look'],2400);self.assertTrue(s['validation']['ok']);project=s['project'];p=s['result']['poses'][0]
         image=self.request('/api/image?'+urlencode({'pose':p,'y':1}))[0];a=decode_png(image);loc=np.argwhere(a[:,:,3]>0)[0];a[loc[0],loc[1]]=[123,45,67,255]

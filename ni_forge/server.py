@@ -8,6 +8,8 @@ from .core import *
 from .ai import API,PixelLabAPI,DEFAULTS
 from .workflows import resources,reference,legacy_golden,reproduce_golden,convert_ai,create_sequential
 
+APP_VERSION='1.1.0-pixellab'
+
 def workspace_default():
     if os.name=='nt':return Path(os.environ.get('LOCALAPPDATA',str(Path.home())))/'NewIslandOutfitForge'
     return Path(os.environ.get('XDG_DATA_HOME',str(Path.home()/'.local/share')))/'NewIslandOutfitForge'
@@ -79,7 +81,7 @@ class State:
         with self.lock:
             return {'source':self.source.summary() if self.source else None,'result':self.result.summary() if self.result else None,
                 'validation':validate(self.result,self.source) if self.result else None,'project':self.project,'title':self.title,
-                'revision':self.revision,'job':dict(self.job),'config':self.config,'has_key':bool(self.pixellab_keys if self.config['provider']=='pixellab' else self.key),'projects':self.list_projects(),'undo':len(self.undo)}
+                'revision':self.revision,'job':dict(self.job),'config':self.config,'has_key':bool(self.pixellab_keys if self.config['provider']=='pixellab' else self.key),'projects':self.list_projects(),'undo':len(self.undo),'version':APP_VERSION}
     def accept_result(self,result):
         with self.lock:self.result=result;self.undo=[];self.revision+=1;self.persist()
     def review_stage(self,name,result):
@@ -196,7 +198,7 @@ class State:
             raise ForgeError('Operação desconhecida.')
 
 class Handler(BaseHTTPRequestHandler):
-    server_version='NewIslandOutfitForge/1.0'
+    server_version='NewIslandOutfitForge/'+APP_VERSION
     def log_message(self,*args):pass  # URLs de sessão não aparecem em logs.
     @property
     def state(self):return self.server.state
@@ -263,7 +265,7 @@ def create_server(workspace=None,port=0):
 
 def serve(workspace=None,port=0,open_browser=True):
     server=create_server(workspace,port);url=f'http://127.0.0.1:{server.server_port}/?token={server.state.token}'
-    print('\nNew Island Outfit Forge 1.0\n'+url+'\n\nMantenha esta janela aberta. Ctrl+C encerra o aplicativo.\n',flush=True)
+    print(f'\nNew Island Outfit Forge {APP_VERSION}\nPixelLab disponível em Configuração > Provedor.\n{url}\n\nMantenha esta janela aberta. Ctrl+C encerra o aplicativo.\n',flush=True)
     if open_browser:threading.Timer(.4,lambda:webbrowser.open(url)).start()
     try:server.serve_forever()
     except KeyboardInterrupt:server.state.stop.set()

@@ -53,6 +53,8 @@ Em **Configuração**, informe sua chave, salve e teste a conexão. A chave perm
 
 Para criação de sprites também é possível selecionar **PixelLab API** e informar uma ou mais chaves, uma por linha. O Forge usa BitForge em 64×64 com guia isométrico e, em erros de autenticação, crédito, cota ou limite, tenta a próxima chave sem registrar nenhuma delas em disco. Na CLI, use `PIXELLAB_API_KEYS=chave1,chave2`. PixelLab não substitui a análise visual estruturada necessária para converter outfits antigos.
 
+Se a tela ainda mostrar apenas “Chave da API” e `v1.0`, você está executando uma cópia ou `.exe` anterior. Feche o processo antigo e inicie esta pasta novamente; para executável Windows, gere um novo build com `GERAR_EXE_WINDOWS.bat`. A versão correta mostra `v1.1.0-pixellab` no cabeçalho e o destaque **PixelLab API disponível** em Configuração.
+
 **Codex não é uma API de geração de imagens.** O Forge não lê nem reutiliza tokens privados do login do Codex/ChatGPT. A opção informativa explica essa limitação em vez de simular uma integração insegura; escolha OpenAI API ou PixelLab para gerar imagens.
 
 Os modelos iniciais configuráveis são `gpt-4.1` para análise visual estruturada e `gpt-image-1.5` para geração/edição de imagens. A conta precisa ter acesso aos modelos. O teste de conexão lista modelos; a autorização para gerar imagens é verificada no uso. O aplicativo usa requisições HTTP reais, sem depender da sessão do ChatGPT.

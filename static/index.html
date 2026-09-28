@@ -1,8 +1,8 @@
 <!doctype html>
 <html lang="pt-BR">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="forge-token" content="__TOKEN__"><title>New Island · Outfit Forge</title><link rel="icon" href="/static/logo.svg"><link rel="stylesheet" href="/static/style.css"><script src="/static/app.js" defer></script></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="forge-token" content="__TOKEN__"><title>New Island · Outfit Forge</title><link rel="icon" href="/static/logo.svg"><link rel="stylesheet" href="/static/style.css?v=1.1.0-pixellab"><script src="/static/app.js?v=1.1.0-pixellab" defer></script></head>
 <body>
-<header><div class="brand"><img src="/static/logo.svg" alt=""><div><strong>NEW ISLAND <span>OUTFIT FORGE</span></strong><small>Oficina de outfits modulares</small></div></div><div class="header-right"><span id="apiBadge" class="badge">Modo local</span><span class="version">v1.0</span></div></header>
+<header><div class="brand"><img src="/static/logo.svg" alt=""><div><strong>NEW ISLAND <span>OUTFIT FORGE</span></strong><small>Oficina de outfits modulares</small></div></div><div class="header-right"><span id="apiBadge" class="badge">Modo local</span><span id="appVersion" class="version">v1.1 · PixelLab</span></div></header>
 <div class="app-shell">
 <aside>
  <nav aria-label="Ferramentas"><button class="nav active" data-panel="import">Importar outfit</button><button class="nav" data-panel="create">Criar por prompt</button><button class="nav" data-panel="projects">Projetos</button><button class="nav" data-panel="settings">Configuração</button></nav>
@@ -27,11 +27,12 @@
  </section>
  <section class="panel hidden" id="panel-projects"><div class="eyebrow">SUA OFICINA</div><h1>Projetos salvos.</h1><p>Importações, resultados e edições aplicadas são salvos automaticamente neste computador.</p><button id="refreshProjects" class="wide">Atualizar lista</button><div id="projectList" class="project-list"></div></section>
  <section class="panel hidden" id="panel-settings"><div class="eyebrow">CONEXÃO</div><h1>Configure sua IA.</h1><p>O Golden funciona localmente. Outros outfits e novos desenhos usam análise visual e geração de imagens.</p>
+  <div class="provider-callout"><strong>PixelLab API disponível</strong><p>Selecione PixelLab abaixo, cole sua chave e clique em Salvar configuração.</p><button id="choosePixelLab" type="button" class="golden wide">Usar PixelLab API</button><a href="https://www.pixellab.ai/pixellab-api" target="_blank" rel="noopener noreferrer">Abrir página da PixelLab ↗</a></div>
   <label>Provedor<select id="provider"><option value="openai">OpenAI API</option><option value="pixellab">PixelLab API · pixel art</option><option value="codex">Codex · informativo</option></select></label>
   <label>Chave OpenAI<input id="apiKey" type="password" autocomplete="off" placeholder="Chave apenas para esta sessão"></label>
   <label>Chaves PixelLab para rotação<textarea id="pixellabKeys" rows="4" autocomplete="off" placeholder="Uma chave por linha. Se faltar crédito, tenta a próxima."></textarea></label><small id="keyHint" class="hint"></small>
   <label>Endpoint<input id="base_url" type="url" value="https://api.openai.com/v1" spellcheck="false"></label>
-  <label>Endpoint PixelLab<input id="pixellab_base_url" type="url" value="https://api.pixellab.ai/v1" spellcheck="false"></label>
+  <label>Endpoint PixelLab API<input id="pixellab_base_url" type="url" value="https://api.pixellab.ai/v1" spellcheck="false"></label>
   <label>Modelo de análise visual<input id="vision_model" value="gpt-4.1" spellcheck="false"></label>
   <label>Modelo de imagens<input id="image_model" value="gpt-image-1.5" spellcheck="false"></label>
   <div class="two-cols"><label>Qualidade<select id="quality"><option value="high">Alta</option><option value="medium">Média</option><option value="low">Baixa</option><option value="auto">Automática</option></select></label><label>Fundo<select id="background"><option value="transparent">Transparente</option><option value="magenta">Chroma magenta</option></select></label></div>
