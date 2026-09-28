@@ -9,7 +9,7 @@ import unittest,tempfile,threading,base64,json,io,zipfile,csv,time,os,sys
 import numpy as np
 from PIL import Image
 from ni_forge.core import *
-from ni_forge.ai import API,ANALYSIS_SCHEMA,STAGE_QC_SCHEMA
+from ni_forge.ai import API,ANALYSIS_SCHEMA
 from ni_forge.workflows import *
 from ni_forge.server import create_server
 
@@ -151,7 +151,7 @@ class APITests(unittest.TestCase):
     def test_models(self):self.assertIn('gpt-image-1.5',self.api.models())
     def test_convert_actual_http_contract_and_cache(self):
         source=synthetic();out=convert_ai(source,self.api,lambda *_:None,self.stop);self.assertTrue(validate(out)['ok']);self.assertEqual(len(out.slots),56);calls=len(self.fake.calls)
-        self.assertEqual(list(out.metadata['stage_approvals']),PARTS)
+        self.assertEqual(list(out.metadata['stage_approvals']),['Base','Helmet','Armor','Legs','Boots','Shield','Weapon'])
         self.assertEqual(out.metadata['composition'],'python_rgba_base_then_y1_to_y6')
         cached=convert_ai(source,self.api,lambda *_:None,self.stop);self.assertEqual(len(self.fake.calls),calls);self.assertGreater(self.api.hits,0)
         for p in source.poses():
@@ -186,7 +186,11 @@ class ServerTests(unittest.TestCase):
         with urlopen(Request(self.base+path,data=None if data is None else json.dumps(data).encode(),headers=h),timeout=30) as r:return r.read(),r.headers
     def j(self,path,data=None):return json.loads(self.request(path,data)[0])
     def wait(self):
-        self.server.state.worker.join(30);self.assertFalse(self.server.state.worker.is_alive());j=self.j('/api/job');self.assertEqual(j['status'],'done',j)
+        limit=time.time()+30
+        while self.server.state.worker.is_alive() and time.time()<limit:
+            if self.j('/api/job')['status']=='awaiting_approval':self.j('/api/approve_stage',{'approved':True})
+            time.sleep(.05)
+        self.server.state.worker.join(1);self.assertFalse(self.server.state.worker.is_alive());j=self.j('/api/job');self.assertEqual(j['status'],'done',j)
     def test_auth_and_html(self):
         with self.assertRaises(HTTPError) as e:self.request('/api/state',auth=False)
         self.assertEqual(e.exception.code,403)
@@ -207,6 +211,8 @@ class ServerTests(unittest.TestCase):
     def test_create_http_endpoint(self):
         with FakeProvider() as fake:
             self.j('/api/config',{'key':'test-key','base_url':fake.url});self.j('/api/create',{'prompt':'Cavaleiro de bronze com arma e escudo','look':2003,'idle':1,'walk':1,'z':1});self.wait();s=self.j('/api/state');self.assertTrue(s['validation']['ok']);self.assertEqual(s['result']['look'],2003)
+            self.assertEqual(list(s['result']['metadata']['stage_approvals']),['Base','Helmet','Armor','Legs','Boots','Shield','Weapon'])
+            self.assertTrue(all(v['approved_by']=='user' for v in s['result']['metadata']['stage_approvals'].values()))
 
 # Mantido separado para não poluir os contratos de produção.
 from urllib.parse import urlencode

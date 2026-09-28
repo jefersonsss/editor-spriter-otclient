@@ -5,7 +5,7 @@ import argparse,json,os,sys,threading
 from ni_forge.core import read_package,write_package,write_source,validate,fingerprint,ForgeError
 from ni_forge.ai import API,DEFAULTS
 from ni_forge.server import serve,workspace_default
-from ni_forge.workflows import reproduce_golden,legacy_golden,convert_ai,create_prompt_source
+from ni_forge.workflows import reproduce_golden,legacy_golden,convert_ai,create_sequential
 
 def main(argv=None):
     parser=argparse.ArgumentParser(description='New Island Outfit Forge · base + 6 addons')
@@ -38,9 +38,8 @@ def main(argv=None):
             else:result=convert_ai(source,api(),progress,stop,args.look,args.prompt)
         else:
             service=api();groups={1:{'type':0,'frames':args.idle,'z':args.z},2:{'type':1,'frames':args.walk,'z':args.z}}
-            source=create_prompt_source(args.prompt,args.look,groups,service,progress,stop)
-            write_source(source,args.output.with_name(args.output.stem+'_fonte.zip'))
-            result=convert_ai(source,service,progress,stop,args.look,args.prompt)
+            result=create_sequential(args.prompt,args.look,groups,service,progress,stop)
+            source=result.copy();write_source(source,args.output.with_name(args.output.stem+'_fonte.zip'))
         report=write_package(result,args.output,source);print(f'\nPacote: {args.output.resolve()}\n{report["images"]} quadros / {report["dat_references"]} referências DAT.');return 0
     except KeyboardInterrupt:print('\nInterrompido. Cache preservado.',file=sys.stderr);return 130
     except (ForgeError,OSError,ValueError) as e:print(f'Erro: {e}',file=sys.stderr);return 2

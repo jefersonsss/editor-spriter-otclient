@@ -6,7 +6,7 @@ from pathlib import Path
 import os,sys,json,threading,secrets,base64,time,uuid,mimetypes,webbrowser,traceback
 from .core import *
 from .ai import API,DEFAULTS
-from .workflows import resources,reference,legacy_golden,reproduce_golden,convert_ai,create_prompt_source
+from .workflows import resources,reference,legacy_golden,reproduce_golden,convert_ai,create_sequential
 
 def workspace_default():
     if os.name=='nt':return Path(os.environ.get('LOCALAPPDATA',str(Path.home())))/'NewIslandOutfitForge'
@@ -29,8 +29,9 @@ class State:
         self.key=os.environ.get('OPENAI_API_KEY','');self.lock=threading.RLock();self.source=None;self.result=None
         self.project=None;self.title='Novo projeto';self.revision=0;self.undo=[];self.token=secrets.token_urlsafe(32)
         self.stop=threading.Event();self.job={'status':'idle','progress':0,'message':'Pronto','logs':[]};self.worker=None
+        self.approval=threading.Event();self.approval_decision=None
     def free(self):
-        if self.job['status']=='running':raise ForgeError('Há uma tarefa em execução. Aguarde ou cancele antes de alterar o projeto.')
+        if self.job['status'] in ['running','awaiting_approval']:raise ForgeError('Há uma tarefa em execução. Aguarde, aprove ou cancele antes de alterar o projeto.')
     def api(self):return API(self.config.copy(),self.key,self.root/'cache',self.stop,lambda m:self.progress(None,m))
     def progress(self,n,message):
         with self.lock:
@@ -77,8 +78,23 @@ class State:
                 'revision':self.revision,'job':dict(self.job),'config':self.config,'has_key':bool(self.key),'projects':self.list_projects(),'undo':len(self.undo)}
     def accept_result(self,result):
         with self.lock:self.result=result;self.undo=[];self.revision+=1;self.persist()
+    def review_stage(self,name,result):
+        with self.lock:
+            if self.project is None:self.new_project(result.copy(),'Prompt em criação')
+            self.accept_result(result.copy());self.approval.clear();self.approval_decision=None
+            self.job.update(status='awaiting_approval',stage=name,message=f'Revise {name} nas poses e animações. Aprove para criar a próxima peça.')
+        while not self.approval.wait(.2):
+            if self.stop.is_set():raise Cancelled('Criação cancelada durante a revisão.')
+        if self.stop.is_set():raise Cancelled('Criação cancelada durante a revisão.')
+        with self.lock:
+            accepted=self.approval_decision;self.job.update(status='running',message=f'{name} aprovado. Criando próxima etapa…')
+        return accepted
     def action(self,path,data):
-        if path=='/api/cancel':self.stop.set();return {'ok':True,'message':'Cancelamento solicitado. Uma requisição já enviada terminará antes de parar.'}
+        if path=='/api/cancel':self.stop.set();self.approval.set();return {'ok':True,'message':'Cancelamento solicitado. Uma requisição já enviada terminará antes de parar.'}
+        if path=='/api/approve_stage':
+            with self.lock:
+                if self.job['status']!='awaiting_approval':raise ForgeError('Não há uma etapa aguardando aprovação.')
+                self.approval_decision=bool(data.get('approved'));self.approval.set();return {'ok':True}
         with self.lock:
             self.free()
             if path=='/api/config':
@@ -142,9 +158,9 @@ class State:
                 if not self.key:raise ForgeError('Configure sua chave de API antes de criar por prompt.')
                 groups={1:{'type':0,'frames':idle,'z':nz},2:{'type':1,'frames':walk,'z':nz}}
                 def task():
-                    api=self.api();source=create_prompt_source(prompt,look,groups,api,lambda n,m:self.progress(n,m),self.stop)
-                    self.new_project(source,'Prompt: '+prompt[:70])
-                    out=convert_ai(source,api,lambda n,m:self.progress(20+int(n*.79),m),self.stop,look,prompt);self.accept_result(out)
+                    api=self.api();out=create_sequential(prompt,look,groups,api,self.progress,self.stop,self.review_stage)
+                    with self.lock:self.source=out.copy();self.title='Prompt: '+prompt[:70]
+                    self.accept_result(out)
                 self.start('Criando novo outfit por prompt',task);return {'ok':True}
             if path in ['/api/edit','/api/undo','/api/save_project','/api/rename']:
                 if self.result is None:raise ForgeError('Crie ou carregue um resultado modular primeiro.')

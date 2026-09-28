@@ -16,14 +16,14 @@ O Golden possui 128 poses, sete linhas e duas camadas: 1.792 quadros e 7.168 ref
 2. Solicita polígonos nativos 64×64 para pele/cabelo e cada equipamento. Addons antigos só são classificados como peças isoladas quando a análise identifica sua natureza. Cada pixel visível recebe um dono único.
 3. Copia os pixels das peças identificadas para o mesmo `(x,y)` da fonte. Lacunas nos polígonos são atribuídas à região identificada mais próxima, com anotação quantitativa no relatório. Incerteza grande vira observação para revisão.
 4. Solicita à API um corpo reconstruído em roupa simples, sem metal, capacete, arma ou escudo. Apenas pele/cabelo identificados podem ser preservados; Y0 antigo inteiro nunca vira a nova base. A roupa nova usa a área anatômica do corpo e recuo de borda sob armadura.
-5. Valida visualmente a Base isolada. Somente após aprovação ela é bloqueada por hash e o fluxo avança.
-6. Processa, na ordem, Helmet, Armor, Legs, Boots, Weapon e Shield. Cada componente é revisado junto da Base, aprovado e bloqueado antes de iniciar o seguinte; uma etapa não pode alterar slots já bloqueados.
+5. Apresenta a Base isolada ao usuário. Somente após a aprovação humana ela é bloqueada por hash e o fluxo avança.
+6. Processa, na ordem, Helmet, Armor, Legs, Boots, Shield e Weapon. Cada componente é mostrado na interface, aprovado pelo usuário e bloqueado antes de iniciar o seguinte; uma etapa não pode alterar slots já bloqueados.
 7. Compõe o FULL deterministicamente em Python (`Base + Y1 ... Y6`), sem pedir à IA que reinterprete o conjunto completo.
 8. Valida slots, dimensões, alpha, máscaras e peças globalmente vazias. Exporta somente quando a estrutura e todas as aprovações passam. Interseções e peças ocultas são reportadas separadamente.
 
 ## Criação por prompt
 
-Usa guias neutros derivados das poses da base Golden. Cada atlas contém dezesseis células fixas de 256×256, cada uma representando um quadro nativo 64×64. Células não usadas ficam vazias. A primeira geração serve de referência de estilo às seguintes. A imagem é convertida para pixels nativos com vizinho mais próximo e encaixada ao guia. O FULL novo passa pelo mesmo processo de modularização.
+Usa guias de pose derivados da base Golden. Em vez de gerar um FULL para depois tentar separá-lo, cria diretamente a Base e um addon por vez. Cada atlas contém dezesseis células fixas de 256×256, cada uma representando um quadro nativo 64×64. Os componentes já aprovados são enviados como contexto visual bloqueado para preservar identidade, paleta, materiais, escala e âncoras. Cada etapa pausa para revisão humana na interface.
 
 A grade rígida é uma exigência enviada à API, não uma garantia matemática de que o modelo desenhará corretamente. Formato/dimensões são verificados; anatomia, coerência de animação, segmentação e detalhes artísticos exigem inspeção das prévias. O aplicativo permite editar PNGs nativos sem alterar outros frames.
 
