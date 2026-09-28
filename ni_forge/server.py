@@ -5,8 +5,8 @@ from urllib.parse import urlparse,parse_qs
 from pathlib import Path
 import os,sys,json,threading,secrets,base64,time,uuid,mimetypes,webbrowser,traceback
 from .core import *
-from .ai import API,DEFAULTS
-from .workflows import resources,reference,legacy_golden,reproduce_golden,convert_ai,create_prompt_source
+from .ai import API,PixelLabAPI,DEFAULTS
+from .workflows import resources,reference,legacy_golden,reproduce_golden,convert_ai,create_sequential
 
 def workspace_default():
     if os.name=='nt':return Path(os.environ.get('LOCALAPPDATA',str(Path.home())))/'NewIslandOutfitForge'
@@ -26,12 +26,17 @@ class State:
         if p.exists():
             try:self.config.update({k:v for k,v in json.loads(p.read_text()).items() if k in DEFAULTS})
             except (ValueError,OSError):pass
-        self.key=os.environ.get('OPENAI_API_KEY','');self.lock=threading.RLock();self.source=None;self.result=None
+        self.key=os.environ.get('OPENAI_API_KEY','');self.pixellab_keys=[k for k in os.environ.get('PIXELLAB_API_KEYS','').split(',') if k];self.lock=threading.RLock();self.source=None;self.result=None
         self.project=None;self.title='Novo projeto';self.revision=0;self.undo=[];self.token=secrets.token_urlsafe(32)
         self.stop=threading.Event();self.job={'status':'idle','progress':0,'message':'Pronto','logs':[]};self.worker=None
+        self.approval=threading.Event();self.approval_decision=None
     def free(self):
-        if self.job['status']=='running':raise ForgeError('Há uma tarefa em execução. Aguarde ou cancele antes de alterar o projeto.')
-    def api(self):return API(self.config.copy(),self.key,self.root/'cache',self.stop,lambda m:self.progress(None,m))
+        if self.job['status'] in ['running','awaiting_approval']:raise ForgeError('Há uma tarefa em execução. Aguarde, aprove ou cancele antes de alterar o projeto.')
+    def api(self):
+        if self.config['provider']=='codex':raise ForgeError('Codex é um agente de programação, não um provedor de geração de imagens incorporável. Use PixelLab ou OpenAI API; o Forge não acessa credenciais privadas do Codex/ChatGPT.')
+        cls=PixelLabAPI if self.config['provider']=='pixellab' else API
+        credentials=self.pixellab_keys if cls is PixelLabAPI else self.key
+        return cls(self.config.copy(),credentials,self.root/'cache',self.stop,lambda m:self.progress(None,m))
     def progress(self,n,message):
         with self.lock:
             if n is not None:self.job['progress']=max(self.job['progress'],min(99,int(n)))
@@ -74,11 +79,26 @@ class State:
         with self.lock:
             return {'source':self.source.summary() if self.source else None,'result':self.result.summary() if self.result else None,
                 'validation':validate(self.result,self.source) if self.result else None,'project':self.project,'title':self.title,
-                'revision':self.revision,'job':dict(self.job),'config':self.config,'has_key':bool(self.key),'projects':self.list_projects(),'undo':len(self.undo)}
+                'revision':self.revision,'job':dict(self.job),'config':self.config,'has_key':bool(self.pixellab_keys if self.config['provider']=='pixellab' else self.key),'projects':self.list_projects(),'undo':len(self.undo)}
     def accept_result(self,result):
         with self.lock:self.result=result;self.undo=[];self.revision+=1;self.persist()
+    def review_stage(self,name,result):
+        with self.lock:
+            if self.project is None:self.new_project(result.copy(),'Prompt em criação')
+            self.accept_result(result.copy());self.approval.clear();self.approval_decision=None
+            self.job.update(status='awaiting_approval',stage=name,message=f'Revise {name} nas poses e animações. Aprove para criar a próxima peça.')
+        while not self.approval.wait(.2):
+            if self.stop.is_set():raise Cancelled('Criação cancelada durante a revisão.')
+        if self.stop.is_set():raise Cancelled('Criação cancelada durante a revisão.')
+        with self.lock:
+            accepted=self.approval_decision;self.job.update(status='running',message=f'{name} aprovado. Criando próxima etapa…')
+        return accepted
     def action(self,path,data):
-        if path=='/api/cancel':self.stop.set();return {'ok':True,'message':'Cancelamento solicitado. Uma requisição já enviada terminará antes de parar.'}
+        if path=='/api/cancel':self.stop.set();self.approval.set();return {'ok':True,'message':'Cancelamento solicitado. Uma requisição já enviada terminará antes de parar.'}
+        if path=='/api/approve_stage':
+            with self.lock:
+                if self.job['status']!='awaiting_approval':raise ForgeError('Não há uma etapa aguardando aprovação.')
+                self.approval_decision=bool(data.get('approved'));self.approval.set();return {'ok':True}
         with self.lock:
             self.free()
             if path=='/api/config':
@@ -88,11 +108,15 @@ class State:
                 c['timeout']=integer(c['timeout'],30,1800,'Timeout');c['max_calls']=integer(c['max_calls'],1,2000,'Limite de chamadas');c['vision_batch']=integer(c['vision_batch'],1,4,'Lote visual')
                 if c['quality'] not in ['low','medium','high','auto']:raise ForgeError('Qualidade inválida.')
                 if c['background'] not in ['transparent','magenta']:raise ForgeError('Fundo inválido.')
+                if c['provider'] not in ['openai','pixellab','codex']:raise ForgeError('Provedor inválido.')
                 u=urlparse(str(c['base_url']))
                 if (u.scheme!='https' and not(u.scheme=='http' and u.hostname in ['127.0.0.1','localhost','::1'])) or u.username or u.password:raise ForgeError('Endpoint inválido: use HTTPS ou um servidor local.')
+                pu=urlparse(str(c['pixellab_base_url']))
+                if (pu.scheme!='https' and not(pu.scheme=='http' and pu.hostname in ['127.0.0.1','localhost','::1'])) or pu.username or pu.password:raise ForgeError('Endpoint PixelLab inválido: use HTTPS ou um servidor local.')
                 for k in ['image_model','vision_model']:
                     if not isinstance(c[k],str) or not c[k].strip():raise ForgeError('Informe os modelos da API.')
                 if 'key' in data:self.key=str(data['key']).strip()
+                if 'pixellab_keys' in data:self.pixellab_keys=[k.strip() for k in str(data['pixellab_keys']).replace('\r','').replace(',','\n').split('\n') if k.strip()]
                 self.config=c;tmp=self.root/'config.tmp';tmp.write_text(json.dumps(c,indent=2),encoding='utf-8');tmp.replace(self.root/'config.json')
                 return {'ok':True,'has_key':bool(self.key)}
             if path=='/api/test_api':
@@ -127,7 +151,8 @@ class State:
                 golden=fingerprint(self.source)==fingerprint(legacy_golden())
                 if engine=='golden' and not golden:raise ForgeError('A fonte não é a matriz Golden validada. Selecione Automático ou IA.')
                 local=(engine!='ai' and (golden or self.source.modular()))
-                if not local and not self.key:raise ForgeError('Configure sua chave de API para converter este outfit. A reprodução Golden funciona sem chave.')
+                if not local and self.config['provider']!='openai':raise ForgeError('A conversão de outfit antigo exige análise visual estruturada da OpenAI. PixelLab é usada somente para criar sprites novos.')
+                if not local and not self.key:raise ForgeError('Configure sua chave OpenAI para converter este outfit. A reprodução Golden funciona sem chave.')
                 def task():
                     if local:
                         if golden:out=reproduce_golden(self.source,look,self.progress,self.stop)
@@ -139,12 +164,14 @@ class State:
                 prompt=str(data.get('prompt','')).strip()
                 if not 8<=len(prompt)<=8000:raise ForgeError('O prompt deve conter entre 8 e 8.000 caracteres.')
                 look=integer(data.get('look',2000),1,65535,'LookType');idle=integer(data.get('idle',8),1,8,'Frames parado');walk=integer(data.get('walk',8),1,8,'Frames andando');nz=integer(data.get('z',2),1,2,'Pattern Z')
-                if not self.key:raise ForgeError('Configure sua chave de API antes de criar por prompt.')
+                if self.config['provider']=='openai' and not self.key:raise ForgeError('Configure sua chave OpenAI antes de criar por prompt.')
+                if self.config['provider']=='pixellab' and not self.pixellab_keys:raise ForgeError('Configure ao menos uma chave PixelLab antes de criar por prompt.')
                 groups={1:{'type':0,'frames':idle,'z':nz},2:{'type':1,'frames':walk,'z':nz}}
+                if self.config['provider']=='codex':raise ForgeError('Codex não gera imagens para aplicativos. Selecione PixelLab ou OpenAI API.')
                 def task():
-                    api=self.api();source=create_prompt_source(prompt,look,groups,api,lambda n,m:self.progress(n,m),self.stop)
-                    self.new_project(source,'Prompt: '+prompt[:70])
-                    out=convert_ai(source,api,lambda n,m:self.progress(20+int(n*.79),m),self.stop,look,prompt);self.accept_result(out)
+                    api=self.api();out=create_sequential(prompt,look,groups,api,self.progress,self.stop,self.review_stage)
+                    with self.lock:self.source=out.copy();self.title='Prompt: '+prompt[:70]
+                    self.accept_result(out)
                 self.start('Criando novo outfit por prompt',task);return {'ok':True}
             if path in ['/api/edit','/api/undo','/api/save_project','/api/rename']:
                 if self.result is None:raise ForgeError('Crie ou carregue um resultado modular primeiro.')
