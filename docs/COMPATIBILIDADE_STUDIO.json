@@ -1,0 +1,25 @@
+{
+  "ok": true,
+  "quadros_identicos_apos_spr_dat": 1792,
+  "slots_faltantes": 0,
+  "referencias_dat": 7168,
+  "importacao_novo": {
+    "target_id": 1,
+    "images": 1792,
+    "new_sprites": 2142,
+    "groups": 2,
+    "missing_slots": 0,
+    "mode": "novo"
+  },
+  "substituicao": {
+    "target_id": 1,
+    "images": 1792,
+    "new_sprites": 2142,
+    "groups": 2,
+    "missing_slots": 0,
+    "mode": "substituído"
+  },
+  "metadados_animacao_preservados": true,
+  "cliente_executado": false,
+  "dat_spr": "Sintéticos, somente para teste temporário."
+}

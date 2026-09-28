@@ -1,0 +1,22 @@
+NEW ISLAND OUTFIT FORGE 1.0
+
+1. Extraia a pasta inteira do ZIP. Nao execute diretamente dentro do ZIP.
+2. No Windows, instale Python 3.11 ou mais recente (64 bits), de python.org.
+3. Abra INICIAR_WINDOWS.bat. Na primeira vez ele instala as dependencias.
+4. O aplicativo abre no seu navegador. Mantenha a janela do Python aberta.
+5. Clique em "Reproduzir Golden validado" para experimentar sem API.
+
+Para converter outros outfits ou criar pelo prompt:
+Abra Configuracao, informe sua chave de API e salve.
+Os modelos iniciais sao gpt-4.1 (analise) e gpt-image-1.5 (imagens).
+A API e cobrada pelo provedor, separadamente do ChatGPT.
+
+O ZIP exportado tem Base + Helmet + Armor + Legs + Boots + Weapon + Shield,
+quadros 64x64, sprites 32x32, Layers=2 e PatternY=7.
+Importe o resultado no New Island Outfit Studio. O app nao altera seu DAT/SPR.
+
+Para gerar executavel posteriormente: GERAR_EXE_WINDOWS.bat.
+Distribua a pasta dist\NewIslandOutfitForge inteira, nao apenas o EXE.
+
+Manual completo: README.md.
+Detalhes dos testes e limites: docs/VALIDACAO.md.

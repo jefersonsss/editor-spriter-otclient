@@ -1,0 +1,31 @@
+test_call_limit (test_app.APITests.test_call_limit) ... ok
+test_cancel (test_app.APITests.test_cancel) ... ok
+test_convert_actual_http_contract_and_cache (test_app.APITests.test_convert_actual_http_contract_and_cache) ... ok
+test_generate_missing_weapon (test_app.APITests.test_generate_missing_weapon) ... ok
+test_images_multiple_reference_and_generation (test_app.APITests.test_images_multiple_reference_and_generation) ... ok
+test_models (test_app.APITests.test_models) ... ok
+test_prompt_then_modularize (test_app.APITests.test_prompt_then_modularize) ... ok
+test_all_reference_pixels (test_app.GoldenTests.test_all_reference_pixels) ... ok
+test_copy_independent (test_app.GoldenTests.test_copy_independent) ... ok
+test_old_examples (test_app.GoldenTests.test_old_examples) ... ok
+test_quadrants_and_hashes (test_app.GoldenTests.test_quadrants_and_hashes) ... ok
+test_roundtrip (test_app.GoldenTests.test_roundtrip) ... ok
+test_source_checkpoint (test_app.GoldenTests.test_source_checkpoint) ... ok
+test_config_needs_key_and_https (test_app.GuardTests.test_config_needs_key_and_https) ... ok
+test_extra_layers_rejected (test_app.GuardTests.test_extra_layers_rejected) ... ok
+test_global_empty_blocked (test_app.GuardTests.test_global_empty_blocked) ... ok
+test_missing_base (test_app.GuardTests.test_missing_base) ... ok
+test_opaque_generated_background_rejected (test_app.GuardTests.test_opaque_generated_background_rejected) ... ok
+test_path_traversal (test_app.GuardTests.test_path_traversal) ... ok
+test_polygon_invalid (test_app.GuardTests.test_polygon_invalid) ... ok
+test_wrong_size (test_app.GuardTests.test_wrong_size) ... ok
+test_auth_and_html (test_app.ServerTests.test_auth_and_html) ... ok
+test_config_secret_not_saved (test_app.ServerTests.test_config_secret_not_saved) ... ok
+test_create_http_endpoint (test_app.ServerTests.test_create_http_endpoint) ... ok
+test_import_then_auto_requires_api (test_app.ServerTests.test_import_then_auto_requires_api) ... ok
+test_offline_job_export_edit_undo_reopen (test_app.ServerTests.test_offline_job_export_edit_undo_reopen) ... ok
+
+----------------------------------------------------------------------
+Ran 26 tests in 27.204s
+
+OK

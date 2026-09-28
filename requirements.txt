@@ -1,0 +1,4 @@
+# Versões usadas na validação desta entrega. Python 3.11–3.14 (64 bits).
+Pillow==12.3.0
+numpy==2.3.5
+scipy==1.17.0

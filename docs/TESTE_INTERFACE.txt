@@ -1,0 +1,1 @@
+PASS: inicialização, referências, 7 toggles, composição, edição de pixel, salvar/desfazer, importação de ZIP, seleção de frames, tarefa Golden, polling e download. DOM simulado + Canvas nativo + servidor Python real.

@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="pt-BR">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="forge-token" content="__TOKEN__"><title>New Island · Outfit Forge</title><link rel="icon" href="/static/logo.svg"><link rel="stylesheet" href="/static/style.css"><script src="/static/app.js" defer></script></head>
+<body>
+<header><div class="brand"><img src="/static/logo.svg" alt=""><div><strong>NEW ISLAND <span>OUTFIT FORGE</span></strong><small>Oficina de outfits modulares</small></div></div><div class="header-right"><span id="apiBadge" class="badge">Modo local</span><span class="version">v1.0</span></div></header>
+<div class="app-shell">
+<aside>
+ <nav aria-label="Ferramentas"><button class="nav active" data-panel="import">Importar outfit</button><button class="nav" data-panel="create">Criar por prompt</button><button class="nav" data-panel="projects">Projetos</button><button class="nav" data-panel="settings">Configuração</button></nav>
+ <section class="panel" id="panel-import"><div class="eyebrow">01 / TRANSFORMAR</div><h1>Do clássico ao modular.</h1><p>Importe seu ZIP, separe os seis equipamentos e preserve os quadros de origem.</p>
+  <label class="drop-zone" id="dropZone"><span class="upload-icon">↥</span><strong>Escolher ZIP de outfit</strong><small>ou arrastar para esta área · até 32 MiB</small><input id="zipInput" type="file" accept=".zip" hidden></label>
+  <div id="loadedName" class="file-name">Nenhum arquivo carregado</div>
+  <label>LookType de saída<input id="convertLook" type="number" min="1" max="65535" value="1210"></label>
+  <label>Processamento<select id="engine"><option value="auto">Automático</option><option value="golden">Receita Golden v8 · local</option><option value="ai">Análise e reconstrução por IA</option></select></label>
+  <label>Orientação artística <span class="muted">opcional</span><textarea id="convertPrompt" rows="3" maxlength="8000" placeholder="Ex.: manter os materiais originais; completar arma e escudo no mesmo estilo."></textarea></label>
+  <button id="convertBtn" class="primary wide">Transformar em modular</button>
+  <div class="separator"></div><div class="eyebrow">REFERÊNCIAS INCLUÍDAS</div>
+  <button id="goldenBtn" class="golden wide">Reproduzir Golden validado</button><p class="hint">Executa a receita original sem API e compara os 1.792 quadros com o Golden v8.</p>
+  <label>Carregar um exemplo<select id="example"><option value="">Escolher referência…</option><option value="golden_old">Golden antigo</option><option value="golden_v8">Golden modular v8</option><option value="1457">Outfit antigo 1457</option><option value="demonhunter">Demonhunter antigo</option></select></label>
+ </section>
+ <section class="panel hidden" id="panel-create"><div class="eyebrow">02 / CRIAR</div><h1>Um personagem novo.</h1><p>Descreva aparência, materiais e os seis equipamentos. A IA cria os quadros e reconstrói a base sem armadura.</p>
+  <label>Seu prompt<textarea id="newPrompt" rows="8" maxlength="8000" placeholder="Cavaleiro das marés, armadura de bronze envelhecido, capacete aberto com crista azul, perneiras articuladas, botas de couro, tridente curto e escudo redondo com concha. Pixel art Tibia, proporções do Golden."></textarea></label>
+  <label>LookType<input id="newLook" type="number" min="1" max="65535" value="2000"></label>
+  <div class="two-cols"><label>Frames parado<select id="idleFrames"><option value="8">8 · Golden</option><option value="1">1 · clássico</option><option value="4">4</option></select></label><label>Frames andando<select id="walkFrames"><option value="8">8</option><option value="4">4</option><option value="1">1 · teste</option></select></label></div>
+  <label>Pattern Z<select id="newZ"><option value="2">2 · Golden</option><option value="1">1</option></select></label>
+  <div class="notice"><strong>Usa sua API de imagens</strong><p>Os prompts e sprites de referência serão enviados ao provedor configurado. Há cobrança conforme o uso da API. A chave fica apenas na sessão.</p><span id="estimate"></span></div>
+  <button id="createBtn" class="primary wide">Criar outfit completo</button><p class="hint">A geração pode demorar. O cache é reutilizado ao repetir o mesmo pedido. Revise as animações antes de importar.</p>
+ </section>
+ <section class="panel hidden" id="panel-projects"><div class="eyebrow">SUA OFICINA</div><h1>Projetos salvos.</h1><p>Importações, resultados e edições aplicadas são salvos automaticamente neste computador.</p><button id="refreshProjects" class="wide">Atualizar lista</button><div id="projectList" class="project-list"></div></section>
+ <section class="panel hidden" id="panel-settings"><div class="eyebrow">CONEXÃO</div><h1>Configure sua IA.</h1><p>O Golden funciona localmente. Outros outfits e novos desenhos usam análise visual e geração de imagens.</p>
+  <label>Chave da API<input id="apiKey" type="password" autocomplete="off" placeholder="Chave apenas para esta sessão"></label><small id="keyHint" class="hint"></small>
+  <label>Endpoint<input id="base_url" type="url" value="https://api.openai.com/v1" spellcheck="false"></label>
+  <label>Modelo de análise visual<input id="vision_model" value="gpt-4.1" spellcheck="false"></label>
+  <label>Modelo de imagens<input id="image_model" value="gpt-image-1.5" spellcheck="false"></label>
+  <div class="two-cols"><label>Qualidade<select id="quality"><option value="high">Alta</option><option value="medium">Média</option><option value="low">Baixa</option><option value="auto">Automática</option></select></label><label>Fundo<select id="background"><option value="transparent">Transparente</option><option value="magenta">Chroma magenta</option></select></label></div>
+  <details><summary>Ajustes de processamento</summary><label>Timeout por chamada (segundos)<input id="timeout" type="number" min="30" max="1800" value="600"></label><label>Limite de chamadas por tarefa<input id="max_calls" type="number" min="1" max="2000" value="250"></label><label>Poses por análise<select id="vision_batch"><option value="4">4</option><option value="2">2</option><option value="1">1</option></select></label></details>
+  <button id="saveSettings" class="primary wide">Salvar configuração</button><button id="testApi" class="wide">Testar conexão</button><button id="clearKey" class="text-btn wide">Remover chave da sessão</button><p class="hint">Uma assinatura do ChatGPT não substitui a chave de API. Provedores alternativos precisam implementar Responses com JSON Schema e Images com PNG base64.</p>
+ </section>
+ <footer>2 × 2 tiles · 64 × 64 px · 7 linhas Y</footer>
+</aside>
+<main>
+ <div class="workspace-top"><div><div class="eyebrow">PROJETO ATUAL</div><h2 id="projectTitle">Sua bancada está pronta</h2></div><button id="exportBtn" class="primary" disabled>↓ Exportar ZIP</button></div>
+ <div id="jobBox" class="job-box hidden" role="status" aria-live="polite"><div class="job-top"><strong id="jobMessage"></strong><button id="cancelBtn">Cancelar</button></div><progress id="jobProgress" max="100" value="0"></progress><details><summary>Detalhes do processamento</summary><pre id="jobLogs"></pre></details></div>
+ <div id="emptyState" class="empty-state"><div class="pixel-emblem">NI</div><h2>Uma base. Seis equipamentos.</h2><p>Abra um outfit antigo ou experimente a reprodução local do Golden.<br>Veja cada peça, teste as combinações e exporte para o seu editor.</p><button id="emptyGolden" class="golden">Experimentar com Golden</button><div class="empty-parts">BASE <span>+</span> HELMET <span>+</span> ARMOR <span>+</span> LEGS <span>+</span> BOOTS <span>+</span> WEAPON <span>+</span> SHIELD</div></div>
+ <div id="workspace" class="hidden">
+  <div id="stats" class="stats"></div>
+  <div class="view-tabs"><button class="view-tab active" data-view="preview">Prévia</button><button class="view-tab" data-view="editor">Editar pixels</button><button class="view-tab" data-view="report">Validação</button></div>
+  <div class="pose-bar"><label>Grupo<select id="group"></select></label><label>Direção<select id="direction"><option value="0">Norte</option><option value="1">Leste</option><option value="2" selected>Sul</option><option value="3">Oeste</option></select></label><label>Pattern Z<select id="poseZ"></select></label><label class="frame-label">Frame <span id="frameNumber">0</span><input id="frame" type="range" min="0" max="7" value="0"></label><button id="playBtn" title="Reproduzir animação">▶ Animar</button><label>FPS<input id="fps" type="number" min="1" max="20" value="6"></label></div>
+  <section id="view-preview" class="view">
+   <div class="canvas-pair"><article class="canvas-card"><div class="card-heading"><strong>Fonte composta</strong><span>FULL original</span></div><div class="canvas-wrap"><canvas id="sourceCanvas" width="64" height="64" aria-label="Outfit de origem"></canvas></div></article><article class="canvas-card"><div class="card-heading"><strong id="resultHeading">Resultado modular</strong><span id="combination">Addons 63</span></div><div class="canvas-wrap"><canvas id="resultCanvas" width="64" height="64" aria-label="Resultado modular"></canvas></div></article></div>
+   <div id="toggles" class="toggles"></div><div class="quick-combos"><button data-bits="0">Só base</button><button data-bits="15">Armadura completa</button><button data-bits="63">Todos</button><label class="inline"><input type="checkbox" id="tileGuides"> Divisão 32 × 32</label></div>
+   <div class="section-heading"><h3>Peças isoladas</h3><small>Clique em uma peça para editar</small></div><div id="partsStrip" class="parts-strip"></div><p class="hint">A grade de origem permanece em 64 × 64. A ampliação da prévia usa pixels inteiros, sem suavização.</p>
+  </section>
+  <section id="view-editor" class="view hidden"><div id="editorUnavailable" class="notice">O editor de pixels fica disponível após gerar ou abrir um resultado modular.</div><div id="editorBody" class="hidden"><div class="editor-layout"><div><div class="editor-info" id="editorInfo"></div><div class="editor-canvas-wrap"><canvas id="pixelCanvas" width="64" height="64" aria-label="Editor de pixel art" tabindex="0"></canvas></div></div><div class="editor-tools"><label>Peça<select id="editPiece"></select></label><label>Camada<select id="editLayer"><option value="0">L0 · Arte</option><option value="1">L1 · Máscara de cores</option></select></label><label>Cor<input id="paintColor" type="color" value="#dba956"></label><div id="palette" class="palette"></div><label class="inline"><input type="checkbox" id="eraser"> Borracha</label><label>Pincel<select id="brush"><option value="1">1 pixel</option><option value="2">2 × 2 pixels</option><option value="3">3 × 3 pixels</option></select></label><button id="undoStroke">Desfazer traço</button><button id="savePixels" class="primary">Aplicar edição</button><button id="undoSaved">Desfazer edição aplicada</button><label class="button-file">Importar PNG 64 × 64<input id="pixelPng" type="file" accept="image/png" hidden></label><button id="downloadPiece">Baixar esta peça</button><p class="hint">Shift + clique captura uma cor. As edições alteram somente esta pose, peça e camada. Aplique antes de sair; trocar de pose aplica automaticamente.</p></div></div></div></section>
+  <section id="view-report" class="view hidden"><div id="validationSummary"></div><div id="validationDetails"></div><details><summary>Relatório técnico completo</summary><pre id="reportJson"></pre></details></section>
+ </div>
+</main>
+</div><div id="toast" role="alert" class="toast hidden"></div>
+</body></html>
