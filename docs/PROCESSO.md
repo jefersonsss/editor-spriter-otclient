@@ -16,9 +16,10 @@ O Golden possui 128 poses, sete linhas e duas camadas: 1.792 quadros e 7.168 ref
 2. Solicita polígonos nativos 64×64 para pele/cabelo e cada equipamento. Addons antigos só são classificados como peças isoladas quando a análise identifica sua natureza. Cada pixel visível recebe um dono único.
 3. Copia os pixels das peças identificadas para o mesmo `(x,y)` da fonte. Lacunas nos polígonos são atribuídas à região identificada mais próxima, com anotação quantitativa no relatório. Incerteza grande vira observação para revisão.
 4. Solicita à API um corpo reconstruído em roupa simples, sem metal, capacete, arma ou escudo. Apenas pele/cabelo identificados podem ser preservados; Y0 antigo inteiro nunca vira a nova base. A roupa nova usa a área anatômica do corpo e recuo de borda sob armadura.
-5. Gera peças ausentes usando o FULL como referência e caixas de encaixe de cada pose. Apenas arte nova passa por ajuste de tamanho/posição; pixels de equipamento copiados da fonte mantêm suas coordenadas.
-6. Solicita revisão visual de uma amostra e registra problemas. O resultado continua disponível para correção no editor de pixels. A revisão da IA não é um teste do cliente.
-7. Valida slots, dimensões, alpha, máscaras e peças globalmente vazias. Exporta somente quando a estrutura passa. Interseções e peças ocultas são reportadas separadamente.
+5. Valida visualmente a Base isolada. Somente após aprovação ela é bloqueada por hash e o fluxo avança.
+6. Processa, na ordem, Helmet, Armor, Legs, Boots, Weapon e Shield. Cada componente é revisado junto da Base, aprovado e bloqueado antes de iniciar o seguinte; uma etapa não pode alterar slots já bloqueados.
+7. Compõe o FULL deterministicamente em Python (`Base + Y1 ... Y6`), sem pedir à IA que reinterprete o conjunto completo.
+8. Valida slots, dimensões, alpha, máscaras e peças globalmente vazias. Exporta somente quando a estrutura e todas as aprovações passam. Interseções e peças ocultas são reportadas separadamente.
 
 ## Criação por prompt
 

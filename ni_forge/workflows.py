@@ -5,7 +5,7 @@ import numpy as np
 from scipy import ndimage as ndi
 from PIL import Image,ImageDraw
 from .core import *
-from .ai import API,ANALYZE_PROMPT,ANALYSIS_SCHEMA,QC_SCHEMA
+from .ai import API,ANALYZE_PROMPT,ANALYSIS_SCHEMA,STAGE_QC_SCHEMA
 
 def resources():return Path(getattr(sys,'_MEIPASS',Path(__file__).resolve().parent.parent))
 def reference(name='golden_modular_v8.zip'):return read_package(resources()/'data/references'/name)
@@ -121,6 +121,33 @@ def align_new(art,target):
     x=tx0+(tx1-tx0-w)//2;y=ty1-h;out=blank();out[y:y+h,x:x+w]=tile
     return binary(out)
 
+def slot_fingerprint(result,ys):
+    """Hash dos slots aprovados; torna qualquer alteração posterior detectável."""
+    import hashlib
+    h=hashlib.sha256()
+    for p in result.poses():
+        for y in ys:
+            h.update(result.get(p,y).tobytes());h.update(result.get(p,y,1).tobytes())
+    return h.hexdigest()
+
+def approve_stage(result,y,api):
+    """Revisa uma etapa isolada antes de congelá-la para as etapas seguintes."""
+    sample=[p for p in result.poses() if p[1]==0][:8];panels=[]
+    for p in sample:
+        if y==0:panels.extend([result.get(p,0)]*3)
+        else:panels.extend([result.get(p,0),result.get(p,y),over(result.get(p,0),result.get(p,y))])
+    name='Base' if y==0 else PARTS[y]
+    prompt=(f'Review ONLY the {name} stage of a Tibia modular outfit. Each row is BASE, '
+            f'{name}, and their Python-composed preview. Confirm identity across poses, exact fit, '
+            'coherent directions, and transparent separation. For Base, also require a clean '
+            'unarmored body. Do not evaluate or invent later components. Return strict approval.')
+    qc=api.vision(prompt,[atlas(panels,cols=3,cell=128)],STAGE_QC_SCHEMA,'stage_review')
+    required=['approved','identity_preserved','fit_coherent','directions_coherent']
+    if not all(qc[k] for k in required):
+        notes='; '.join(str(n) for n in qc.get('notes',[])) or 'sem detalhe'
+        raise ForgeError(f'{name} não foi aprovado e não será bloqueado: {notes}')
+    return qc
+
 def create_prompt_source(prompt,look,groups,api,progress,stop):
     if len(prompt.strip())<8:raise ForgeError('Descreva o personagem e seu equipamento no prompt.')
     guide=reference();source=Outfit(look,groups);poses=source.poses();first_style=None
@@ -167,8 +194,13 @@ def convert_ai(source,api,progress,stop,look=None,prompt=''):
             if np.count_nonzero(new[:,:,3])<20:raise ForgeError('A Base reconstruída ficou vazia/inadequada; a geração precisa ser revisada.')
             result.slots[(*p,0,0)]=new
         progress(35+int(25*(i+1)/len(batches)),f'Reconstruindo roupa-base: lote {i+1}/{len(batches)}')
-    # Uma peça pode não existir no outfit antigo. Cria arte nova nos seus pontos de encaixe.
+    # A Base é aprovada primeiro e fica imutável durante todas as etapas seguintes.
+    approvals={'Base':approve_stage(result,0,api)};locked=[0]
+    approvals['Base']['sha256']=slot_fingerprint(result,locked)
+    progress(60,'Base aprovada e bloqueada')
+    # Cada peça é concluída, aprovada isoladamente e bloqueada antes da próxima.
     for y in range(1,7):
+        before=slot_fingerprint(result,locked)
         absent=[p for p in source.poses() if not result.get(p,y)[:,:,3].any()]
         for pp in generation_batches(absent):
             req=GRID_PROMPT+f'\nCreate ONLY {PARTS[y]} equipment for each character pose in the guide; every other pixel must be transparent. No body or other equipment. Match the source material/style and anatomy. The equipment must be wearable at the exact same location. Character request: {prompt}.\nCELLS: '+pose_descriptions(pp)
@@ -186,16 +218,11 @@ def convert_ai(source,api,progress,stop,look=None,prompt=''):
                         for later in range(2,5):result.slots[(*p,later,0)][new[:,:,3]>0]=0
                 if not new[:,:,3].any():raise ForgeError(f'{PARTS[y]} gerado não cabe sem encobrir outra peça em {pose_id(p)}; revise a análise.')
                 result.slots[(*p,y,0)]=new;generated_info[pose_id(p)+'_'+PARTS[y]]='created_missing'
-        progress(60+y*5,f'Peça {PARTS[y]} concluída')
-    # Revisão visual da IA é registrada separadamente dos testes de formato.
-    sample=[p for p in source.poses() if p[1]==0][:8]
-    panels=[]
-    for p in sample:
-        for y in [0,2,3]:panels.append(result.get(p,y))
-        panels.append(result.full(p))
-    qc=api.vision('Review this Tibia modular outfit. For each row the four cells are CLEAN BASE, ARMOR ONLY, LEGS ONLY, FULL. Check that Base is actually unarmored clothing, pieces fit, torso is not cut by pants, and the directions are coherent. Do not certify client compatibility. Return structured checks and concrete notes.',[atlas(panels,cols=4,cell=128)],QC_SCHEMA,'outfit_review')
-    if qc['needs_revision'] or not all(qc[k] for k in ['base_clean','pieces_fit','directions_coherent']):result.notes+=['Revisão visual da IA solicita ajuste: '+str(s) for s in (qc['notes'] or ['Verifique corpo, encaixes e direções.'])]
-    result.metadata={'engine':'vision_and_images','prompt':prompt,'source_fingerprint':fingerprint(source),'analysis':{pose_id(p):v for p,v in plans.items()},'generated_pieces':generated_info,'quality_review':qc,'api_models':{'vision':api.config['vision_model'],'image':api.config['image_model']},'api_calls':api.calls,'cache_hits':api.hits,'usage':api.usage,'art_review':'Revisar as prévias; geração artística por IA não equivale a aprovação no cliente.'}
+        if slot_fingerprint(result,locked)!=before:raise ForgeError('Uma etapa alterou componentes já bloqueados.')
+        qc=approve_stage(result,y,api);locked.append(y);qc['sha256']=slot_fingerprint(result,[y]);approvals[PARTS[y]]=qc
+        progress(60+y*5,f'{PARTS[y]} aprovado e bloqueado')
+    # O FULL não é reinterpretado pela IA: é composto deterministicamente pelos 7 slots.
+    result.metadata={'engine':'sequential_locked_components','prompt':prompt,'source_fingerprint':fingerprint(source),'analysis':{pose_id(p):v for p,v in plans.items()},'generated_pieces':generated_info,'stage_approvals':approvals,'composition':'python_rgba_base_then_y1_to_y6','api_models':{'vision':api.config['vision_model'],'image':api.config['image_model']},'api_calls':api.calls,'cache_hits':api.hits,'usage':api.usage,'art_review':'Base e seis componentes aprovados em sequência; revisar também no cliente.'}
     report=validate(result,source)
     if not report['ok']:raise ForgeError('Resultado não passou na validação: '+'; '.join(report['errors'][:4]))
     progress(100,'Conversão concluída. Confira as prévias e o relatório antes de importar no cliente.');return result

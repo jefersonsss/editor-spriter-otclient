@@ -55,7 +55,7 @@ Os modelos iniciais configuráveis são `gpt-4.1` para análise visual estrutura
 
 O endpoint padrão é `https://api.openai.com/v1`. Provedores alternativos precisam oferecer os mesmos contratos: `/responses` com imagens e JSON Schema estrito, `/images/edits` multipart com uma ou mais `image[]`, `/images/generations` e PNG em `b64_json`. A escolha de endpoint envia a chave a esse provedor.
 
-**Consumo:** uma conversão de 128 poses usa aproximadamente 32 análises, 8 atlas de corpo e uma revisão final. Cada peça ausente em todas as poses acrescenta até 8 atlas. Criar por prompt acrescenta outros 8 atlas de FULL. Retentativas de erros HTTP e alterações de configuração podem gerar chamadas adicionais. Isso não é uma estimativa de preço; consulte a cobrança da sua conta. Reduza frames/Z para experimentar uma criação menor.
+**Consumo:** uma conversão de 128 poses usa aproximadamente 32 análises, 8 atlas de corpo e sete revisões sequenciais (Base + seis componentes). Cada peça ausente em todas as poses acrescenta até 8 atlas. Criar por prompt acrescenta outros 8 atlas de FULL. Retentativas de erros HTTP e alterações de configuração podem gerar chamadas adicionais. Isso não é uma estimativa de preço; consulte a cobrança da sua conta. Reduza frames/Z para experimentar uma criação menor.
 
 Qualidade, fundo, limite de chamadas, timeout e lote visual são ajustáveis. O limite de chamadas interrompe a tarefa quando atingido. **Cancelar** interrompe entre etapas; uma chamada já enviada pode terminar e ser cobrada. Um timeout também não comprova que o provedor deixou de processar a chamada.
 
@@ -120,7 +120,7 @@ Na CLI, forneça a chave por `OPENAI_API_KEY`. A configuração da interface é 
 
 `ni_forge/core.py` trata o formato, composição, recortes de tiles e validação. `workflows.py` contém os dois motores. `ai.py` implementa os contratos HTTP e cache. `server.py` fornece a interface local. `static/` contém HTML/CSS/JavaScript sem CDN. `data/` inclui referências e receita. `tests/` verifica os fluxos.
 
-O Golden é uma reprodução determinística; ela foi comparada com todos os quadros da referência fornecida. Converter um design desconhecido exige interpretação visual. O programa preserva a posição dos pixels antigos classificados; não escala, centraliza ou desloca a fonte antiga. Para reconstrução de corpo e peças novas, há geração em atlas e encaixe por caixas anatômicas. A IA pode errar polígonos, direção ou desenho. A validação estrutural e a revisão visual da IA não equivalem a uma aprovação artística no cliente.
+O Golden é uma reprodução determinística; ela foi comparada com todos os quadros da referência fornecida. Converter um design desconhecido exige interpretação visual. O programa preserva a posição dos pixels antigos classificados; não escala, centraliza ou desloca a fonte antiga. Para reconstrução de corpo e peças novas, há geração em atlas e encaixe por caixas anatômicas. A Base e depois Helmet, Armor, Legs, Boots, Weapon e Shield são aprovados e bloqueados sequencialmente; só então o Python compõe o FULL. A IA pode errar polígonos, direção ou desenho. A validação estrutural e a revisão visual da IA não equivalem a uma aprovação artística no cliente.
 
 Veja [docs/VALIDACAO.md](docs/VALIDACAO.md) para a cobertura efetivamente executada e [docs/PROCESSO.md](docs/PROCESSO.md) para o tratamento da geometria.
 

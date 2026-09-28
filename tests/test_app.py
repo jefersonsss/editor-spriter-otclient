@@ -9,7 +9,7 @@ import unittest,tempfile,threading,base64,json,io,zipfile,csv,time,os,sys
 import numpy as np
 from PIL import Image
 from ni_forge.core import *
-from ni_forge.ai import API,ANALYSIS_SCHEMA,QC_SCHEMA
+from ni_forge.ai import API,ANALYSIS_SCHEMA,STAGE_QC_SCHEMA
 from ni_forge.workflows import *
 from ni_forge.server import create_server
 
@@ -37,7 +37,7 @@ class ProviderHandler(BaseHTTPRequestHandler):
         assert self.headers['Authorization']=='Bearer test-key'
         if self.path=='/responses':
             body=json.loads(raw);self.server.calls.append((self.path,body));fmt=body['text']['format'];assert fmt['strict'] and fmt['type']=='json_schema'
-            if fmt['name']=='outfit_review':answer={'base_clean':True,'pieces_fit':True,'directions_coherent':True,'needs_revision':False,'notes':['Fixture HTTP; não é análise artística real.']}
+            if fmt['name']=='stage_review':answer={'approved':True,'identity_preserved':True,'fit_coherent':True,'directions_coherent':True,'notes':['Fixture HTTP; não é análise artística real.']}
             else:
                 content=body['input'][0]['content'];prompt=content[0]['text'];poses=json.loads(prompt.split('POSES: ',1)[1]);board=decode_png(base64.b64decode(content[1]['image_url'].split(',')[1]));plans=[]
                 for i,p in enumerate(poses):
@@ -151,6 +151,8 @@ class APITests(unittest.TestCase):
     def test_models(self):self.assertIn('gpt-image-1.5',self.api.models())
     def test_convert_actual_http_contract_and_cache(self):
         source=synthetic();out=convert_ai(source,self.api,lambda *_:None,self.stop);self.assertTrue(validate(out)['ok']);self.assertEqual(len(out.slots),56);calls=len(self.fake.calls)
+        self.assertEqual(list(out.metadata['stage_approvals']),PARTS)
+        self.assertEqual(out.metadata['composition'],'python_rgba_base_then_y1_to_y6')
         cached=convert_ai(source,self.api,lambda *_:None,self.stop);self.assertEqual(len(self.fake.calls),calls);self.assertGreater(self.api.hits,0)
         for p in source.poses():
             original=source.full(p)
