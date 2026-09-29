@@ -7,7 +7,7 @@ from urllib.parse import urlparse
 import io,json,hashlib,base64,time,uuid,ssl
 from .core import ForgeError,png,decode_png,Cancelled
 
-DEFAULTS={'base_url':'https://api.openai.com/v1','vision_model':'gpt-4.1','image_model':'gpt-image-1.5','quality':'high','background':'transparent','timeout':600,'max_calls':250,'vision_batch':4}
+DEFAULTS={'provider':'openai','base_url':'https://api.openai.com/v1','pixellab_base_url':'https://api.pixellab.ai/v1','vision_model':'gpt-4.1','image_model':'gpt-image-1.5','quality':'high','background':'transparent','timeout':600,'max_calls':250,'vision_batch':4}
 
 def obj(properties):return {'type':'object','properties':properties,'required':list(properties),'additionalProperties':False}
 def arr(items):return {'type':'array','items':items}
@@ -17,7 +17,6 @@ POLYGON=arr(POINT)
 REGION=obj({'piece':{'type':'string','enum':['skin','Helmet','Armor','Legs','Boots','Weapon','Shield']},'polygons':arr(POLYGON)})
 BOX=obj({'piece':{'type':'string','enum':['Helmet','Armor','Legs','Boots','Weapon','Shield']},'x':I,'y':I,'width':I,'height':I})
 ANALYSIS_SCHEMA=obj({'poses':arr(obj({'id':S,'confidence':N,'complete':B,'description':S,'regions':arr(REGION),'isolated_addons':arr(obj({'source_y':I,'piece':{'type':'string','enum':['Helmet','Armor','Legs','Boots','Weapon','Shield','mixed','unknown']},'confidence':N})),'missing_pieces':arr(S),'attachment_boxes':arr(BOX),'notes':S}))})
-QC_SCHEMA=obj({'base_clean':B,'pieces_fit':B,'directions_coherent':B,'needs_revision':B,'notes':arr(S)})
 
 ANALYZE_PROMPT='''Você é um artista técnico de pixel art Tibia/New Island. Analise os quadros visuais fornecidos.
 Cada linha é uma POSE; as colunas são: fonte Y0 antiga, addon Y1 antigo, addon Y2 antigo, FULL composto.
@@ -109,4 +108,85 @@ class API:
         try:a=decode_png(base64.b64decode(result['image'],validate=True))
         except Exception as e:raise ForgeError('Imagem inválida devolvida pela API.') from e
         if a.shape[:2]!=(1024,1024):raise ForgeError('A Images API não respeitou a grade 1024×1024. O resultado foi mantido no cache para análise.')
+        return a
+
+class PixelLabAPI:
+    """Cliente PixelLab BitForge com rotação segura entre várias chaves."""
+    def __init__(self,config,keys,cache,stop=None,progress=None):
+        self.config=DEFAULTS|config;self.keys=[k.strip() for k in keys if k.strip()];self.cache=Path(cache);self.cache.mkdir(parents=True,exist_ok=True)
+        self.stop=stop;self.progress=progress or (lambda s:None);self.calls=0;self.hits=0;self.usage=[];self.key_index=0
+        u=urlparse(self.config['pixellab_base_url'])
+        if u.scheme!='https' and not(u.scheme=='http' and u.hostname in ['127.0.0.1','localhost','::1']):raise ForgeError('O endpoint PixelLab deve usar HTTPS; HTTP só é aceito localmente.')
+        if not self.keys:raise ForgeError('Configure ao menos uma chave PixelLab. As chaves ficam somente na sessão.')
+    def check(self):
+        if self.stop and self.stop.is_set():raise Cancelled('Operação cancelada; checkpoints preservados.')
+    def _request(self,path,payload=None,method='POST'):
+        self.check();last=''
+        for offset in range(len(self.keys)):
+            idx=(self.key_index+offset)%len(self.keys);key=self.keys[idx]
+            data=None if payload is None else json.dumps(payload).encode()
+            for attempt in range(3):
+                if self.calls>=int(self.config['max_calls']):raise ForgeError('Limite de chamadas PixelLab atingido.')
+                req=Request(self.config['pixellab_base_url'].rstrip('/')+path,data=data,headers={'Authorization':'Bearer '+key,'Content-Type':'application/json'},method=method)
+                self.calls+=1;self.progress(f'PixelLab: chamada {self.calls} · chave {idx+1}/{len(self.keys)} · {path}'+(f' · tentativa {attempt+1}/3' if attempt else ''))
+                try:
+                    with urlopen(req,timeout=int(self.config['timeout']),context=ssl.create_default_context()) as response:result=json.loads(response.read(20*1024**2))
+                    self.key_index=idx
+                    if 'usage' in result:self.usage.append(result['usage'])
+                    return result
+                except HTTPError as e:
+                    raw=e.read(10000).decode(errors='replace')
+                    try:last=str(json.loads(raw).get('detail',raw))
+                    except Exception:last=raw
+                    for secret in self.keys:last=last.replace(secret,'[CHAVE OMITIDA]')
+                    if e.code in (500,502,503,504) and attempt<2:
+                        self.progress(f'PixelLab temporariamente indisponível (HTTP {e.code}); nova tentativa automática.')
+                        for _ in range(10*(attempt+1)):self.check();time.sleep(.1)
+                        continue
+                    # Autorização, crédito, cota, rate limit ou 5xx persistente: próxima chave.
+                    if e.code in (401,402,403,429,500,502,503,504):break
+                    raise ForgeError(f'PixelLab HTTP {e.code}: {last[:1200]}') from None
+                except (URLError,TimeoutError):
+                    last='Falha de rede ou timeout na PixelLab.'
+                    if attempt<2:
+                        for _ in range(10*(attempt+1)):self.check();time.sleep(.1)
+                        continue
+                    break
+        raise ForgeError('Todas as chaves PixelLab falharam, estão sem crédito ou atingiram o limite. O progresso concluído está no cache; repita o mesmo pedido para retomar. Detalhe: '+last[:900])
+    def models(self):
+        balances=[]
+        original=self.key_index
+        for i in range(len(self.keys)):
+            self.key_index=i
+            try:balances.append(self._request('/balance',method='GET').get('usd'))
+            except ForgeError:balances.append(None)
+        self.key_index=original
+        if not any(v is not None and float(v)>0 for v in balances):raise ForgeError('Nenhuma chave PixelLab possui saldo disponível.')
+        return [f'PixelLab BitForge · chave {i+1} · saldo {v}' for i,v in enumerate(balances)]
+    def vision(self,*_args,**_kwargs):raise ForgeError('PixelLab não oferece análise visual estruturada. Use OpenAI para converter outfits antigos.')
+    def _debug_response(self,result,direction,from_cache):
+        """Mostra o contrato recebido sem despejar base64, prompt ou credenciais."""
+        image=result.get('image',{}) if isinstance(result,dict) else {}
+        images=result.get('images',[]) if isinstance(result,dict) else []
+        keys=sorted(str(k) for k in result) if isinstance(result,dict) else []
+        encoded=image.get('base64','') if isinstance(image,dict) else ''
+        count=len(images) if isinstance(images,list) else 0
+        if encoded:count=max(1,count)
+        usage=result.get('usage',{}) if isinstance(result,dict) else {}
+        usage_keys=sorted(str(k) for k in usage) if isinstance(usage,dict) else []
+        self.progress(f'PixelLab debug seguro: origem={"cache" if from_cache else "API"} · direção={direction} · chaves={keys} · imagens={count} · base64_bytes≈{len(encoded)*3//4} · usage={usage_keys}')
+    def sprite(self,prompt,guide,context,direction):
+        def encoded(a):return {'type':'base64','base64':base64.b64encode(png(a)).decode(),'format':'png'}
+        has_context=context[:,:,3].any()
+        payload={'description':prompt,'image_size':{'width':64,'height':64},'negative_description':'copy of reference character, same face, same hair, same clothes, background, shadow, text, blur, anti-aliasing, wrong pose, extra limbs','text_guidance_scale':10,'extra_guidance_scale':6 if has_context else 0,'style_strength':55 if has_context else 0,'no_background':True,'seed':0,'outline':'selective outline','shading':'medium shading','detail':'highly detailed','view':'high top-down','direction':direction,'isometric':True,'oblique_projection':False,'coverage_percentage':65,'init_image':encoded(guide),'init_image_strength':300,'style_image':encoded(context) if has_context else None}
+        request={'endpoint':self.config['pixellab_base_url'],'payload':payload}
+        h=hashlib.sha256(json.dumps(request,sort_keys=True).encode()).hexdigest();p=self.cache/(h+'.json')
+        from_cache=p.exists()
+        if from_cache:self.hits+=1;self.progress(f'PixelLab: sprite recuperado do cache ({self.hits})');result=json.loads(p.read_text())
+        else:
+            result=self._request('/generate-image-bitforge',payload);tmp=p.with_suffix('.tmp');tmp.write_text(json.dumps(result));tmp.replace(p)
+        self._debug_response(result,direction,from_cache)
+        try:a=decode_png(base64.b64decode(result['image']['base64'],validate=True))
+        except Exception as e:raise ForgeError('A PixelLab devolveu uma imagem inválida.') from e
+        if a.shape[:2]!=(64,64):raise ForgeError('A PixelLab não devolveu o sprite 64×64 solicitado.')
         return a
