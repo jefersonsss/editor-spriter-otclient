@@ -1,0 +1,67 @@
+NEW ISLAND — GOLDEN MODULAR V8
+=============================
+
+COMECE PELA PRÉVIA
+Extraia o ZIP e abra PREVIA_ABRIR_NO_NAVEGADOR.html.
+Ela funciona offline, sem instalar bibliotecas. Você pode ligar/desligar Base,
+Helmet, Armor, Legs, Boots, Weapon e Shield, mudar grupo, direção, Z e frame.
+Para ver uma peça isolada, desmarque Base e deixe somente essa peça ligada.
+As animações e os painéis de comparação ficam em documentacao/.
+
+IMPORTAÇÃO NO NEW ISLAND OUTFIT STUDIO ENVIADO
+1. Abra a pasta do cliente que contém Tibia.dat e Tibia.spr.
+2. Entre em "Importar ZIP / Pasta" e selecione este ZIP ou a pasta outfit_1210.
+3. Escolha "Criar novo LookType" ou informe o LookType a substituir.
+4. Importe. A origem gráfica é 1210; "Criar novo" usa o próximo ID do DAT.
+5. Salve primeiro SPR e depois DAT.
+
+Estrutura esperada na análise do pacote:
+2 grupos · 2×2 tiles · 8 frames em cada grupo · X=4 · Y=7 · Z=2 · Layers=2.
+1.792 PNGs de quadro · 7.168 referências no DAT · zero slots faltantes.
+O limite do editor deve corresponder ao cliente já preparado para essa estrutura.
+
+MAPEAMENTO
+Y0 — Base: cabelo/rosto preservados; túnica azul simples, calça e calçado neutros.
+Y1 — Helmet: capacete original, sem redimensionamento nem deslocamento.
+Y2 — Armor: couraça, ombreiras e luvas; barra acompanha o contorno da peça.
+Y3 — Legs: trechos visíveis das perneiras; não repintam a couraça.
+Y4 — Boots: botas completas nas poses do pacote.
+Y5 — Weapon: espada curta de lâmina clara e guarda dourada.
+Y6 — Shield: pequeno escudo dourado.
+Bits dos seis addons: 1, 2, 4, 8, 16, 32. Todos ligados = 63.
+
+O QUE FOI VERIFICADO
+• Os pixels do Golden original não foram redimensionados ou centralizados.
+• Base + Helmet + Armor + Legs + Boots recompõem o Golden antigo com
+  zero diferenças de pixels nas 128 poses.
+• Helmet, Armor, Legs e Boots não se sobrepõem entre si.
+• Nenhum dos seis addons está vazio em qualquer pose.
+• Todos os 1.792 quadros passaram por importação, divisão em tiles,
+  gravação SPR/DAT e leitura de volta usando as classes do editor fornecido.
+• As 64 seleções de addons foram compostas em cada pose: 8.192 composições.
+• Os testes também passaram no modo de substituição de LookType.
+
+Os testes foram offline. O pacote ainda não foi executado no seu cliente/servidor.
+Nenhum DAT/SPR de teste está incluído para substituir os arquivos do cliente.
+
+SOBRE AS PERNEIRAS
+O Golden original tem uma couraça longa. Em algumas poses Z1, ela cobre quase
+toda a coxa. Nelas o addon Legs é pequeno por corresponder à região visível.
+O recorte preserva essa oclusão: não inventa uma perneira que pinte por cima
+da couraça. A região escondida é completada pela roupa simples da Base.
+
+MÁSCARAS E SPRITE IDS
+O Layer 1 da Base usa as cores de máscara do outfit: amarelo=cabelo,
+vermelho=tronco, verde=pernas, azul=calçado. Os Layer 1 dos equipamentos
+ficam transparentes para manter as cores fixas; suas imagens estão no Layer 0.
+Os IDs de sprites_individuais são índices locais para conferência.
+O Studio cria os IDs definitivos no Tibia.spr durante a importação.
+Não é necessário importar os sprites individuais separadamente.
+
+DOCUMENTAÇÃO
+documentacao/RELATORIO_TECNICO.md — fontes, critérios e limites.
+documentacao/validacao.json — resultados dos testes.
+documentacao/mapa_sprites.csv — os quatro tiles de cada quadro, na ordem do DAT.
+coordenadas_poses.json — contornos e âncoras usados em cada pose.
+documentacao/reconstruir_quadros.py — fonte reproduzível dos quadros.
+documentacao/fontes/golden_original.zip — referência original intacta.
