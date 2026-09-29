@@ -16,13 +16,22 @@ O Golden possui 128 poses, sete linhas e duas camadas: 1.792 quadros e 7.168 ref
 2. Solicita polígonos nativos 64×64 para pele/cabelo e cada equipamento. Addons antigos só são classificados como peças isoladas quando a análise identifica sua natureza. Cada pixel visível recebe um dono único.
 3. Copia os pixels das peças identificadas para o mesmo `(x,y)` da fonte. Lacunas nos polígonos são atribuídas à região identificada mais próxima, com anotação quantitativa no relatório. Incerteza grande vira observação para revisão.
 4. Solicita à API um corpo reconstruído em roupa simples, sem metal, capacete, arma ou escudo. Apenas pele/cabelo identificados podem ser preservados; Y0 antigo inteiro nunca vira a nova base. A roupa nova usa a área anatômica do corpo e recuo de borda sob armadura.
-5. Gera peças ausentes usando o FULL como referência e caixas de encaixe de cada pose. Apenas arte nova passa por ajuste de tamanho/posição; pixels de equipamento copiados da fonte mantêm suas coordenadas.
-6. Solicita revisão visual de uma amostra e registra problemas. O resultado continua disponível para correção no editor de pixels. A revisão da IA não é um teste do cliente.
-7. Valida slots, dimensões, alpha, máscaras e peças globalmente vazias. Exporta somente quando a estrutura passa. Interseções e peças ocultas são reportadas separadamente.
+5. Apresenta a Base isolada ao usuário. Somente após a aprovação humana ela é bloqueada por hash e o fluxo avança.
+6. Processa, na ordem, Helmet, Armor, Legs, Boots, Shield e Weapon. Cada componente é mostrado na interface, aprovado pelo usuário e bloqueado antes de iniciar o seguinte; uma etapa não pode alterar slots já bloqueados.
+7. Compõe o FULL deterministicamente em Python (`Base + Y1 ... Y6`), sem pedir à IA que reinterprete o conjunto completo.
+8. Valida slots, dimensões, alpha, máscaras e peças globalmente vazias. Exporta somente quando a estrutura e todas as aprovações passam. Interseções e peças ocultas são reportadas separadamente.
 
 ## Criação por prompt
 
-Usa guias neutros derivados das poses da base Golden. Cada atlas contém dezesseis células fixas de 256×256, cada uma representando um quadro nativo 64×64. Células não usadas ficam vazias. A primeira geração serve de referência de estilo às seguintes. A imagem é convertida para pixels nativos com vizinho mais próximo e encaixada ao guia. O FULL novo passa pelo mesmo processo de modularização.
+Usa as silhuetas validadas do Golden como contrato geométrico. Em vez de gerar um FULL para depois tentar separá-lo, cria diretamente a Base e um addon por vez. Para cada componente, gera primeiro somente a pose principal Sul e exige aprovação humana antes de gastar chamadas com as poses restantes. Depois expande o design aprovado, reconforma o alpha à silhueta do guia e apresenta o componente completo para uma segunda revisão. Pose diagonal/isométrica, direção, escala e âncora não ficam a critério do modelo.
+
+Antes do envio à PixelLab, o guia perde todas as cores e detalhes Golden e vira apenas um volume neutro em cinza. A imagem inicial usa influência reduzida; na Base não há referência de estilo. O pós-processamento aceita um contorno novo dentro de uma margem estrutural de dois pixels, em vez de reimpor o alpha Golden pixel a pixel.
+
+O modo padrão pausa também depois de cada resposta PixelLab, publica exatamente a pose recebida e espera aprovação antes da chamada seguinte. O usuário pode trocar para revisão por etapas ou execução automática. Checkpoints parciais podem ser baixados durante o job; a coluna esquerda continua mostrando apenas o guia estrutural, enquanto a direita mostra o resultado efetivamente gerado.
+
+Na integração PixelLab, cada chamada recebe um pedido próprio para exatamente um sprite 64×64. O contrato de atlas 1024×1024 usado pela OpenAI não é enviado à PixelLab. Se a API devolver um personagem inteiro quando foi solicitado somente um addon, o resultado é rejeitado antes de entrar no projeto, em vez de ser reduzido até virar pixels desconexos.
+
+Um ZIP nativo PixelLab 3.x também pode ser aberto em **Importar outfit**. O manifesto é validado, as quatro rotações cardinais 64×64 são carregadas como Base e o resultado ganha a estrutura modular do Forge. O LookType provisório é 2000 e deve ser ajustado antes da exportação final.
 
 A grade rígida é uma exigência enviada à API, não uma garantia matemática de que o modelo desenhará corretamente. Formato/dimensões são verificados; anatomia, coerência de animação, segmentação e detalhes artísticos exigem inspeção das prévias. O aplicativo permite editar PNGs nativos sem alterar outros frames.
 
