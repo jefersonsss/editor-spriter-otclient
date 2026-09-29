@@ -33,6 +33,8 @@ Na integração PixelLab, cada chamada recebe um pedido próprio para exatamente
 
 Um ZIP nativo PixelLab 3.x também pode ser aberto em **Importar outfit**. O manifesto é validado, as quatro rotações cardinais 64×64 são carregadas como Base e o resultado ganha a estrutura modular do Forge. O LookType provisório é 2000 e deve ser ajustado antes da exportação final.
 
+Cada resposta da API gera uma linha `PixelLab debug seguro` nos detalhes da tarefa. Ela informa somente o esquema, a origem cache/API, direção, contagem e tamanho aproximado das imagens e campos de cobrança; nunca inclui base64, chave ou prompt. O debug reaproveita a própria resposta da geração e, portanto, não faz uma chamada adicional.
+
 A grade rígida é uma exigência enviada à API, não uma garantia matemática de que o modelo desenhará corretamente. Formato/dimensões são verificados; anatomia, coerência de animação, segmentação e detalhes artísticos exigem inspeção das prévias. O aplicativo permite editar PNGs nativos sem alterar outros frames.
 
 ## Saída

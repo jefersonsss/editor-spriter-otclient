@@ -65,6 +65,8 @@ Cada chamada PixelLab pede exatamente um sprite 64×64; ela não recebe as instr
 
 O Forge também reconhece diretamente o ZIP de personagem exportado pela PixelLab (`export_version` 3.x). Ao importá-lo, usa as rotações nativas `north`, `east`, `south` e `west` como Base, conserva o identificador de origem apenas nos metadados locais e cria os slots modulares vazios para edição. As quatro diagonais continuam no ZIP original, mas não entram no perfil OTClient de quatro direções.
 
+Durante chamadas PixelLab, **Detalhes do processamento** mostra um diagnóstico seguro da resposta: origem API/cache, direção, campos recebidos, quantidade de imagens, tamanho aproximado e campos de uso. O conteúdo base64, prompts e chaves nunca são exibidos. Esse diagnóstico permite confirmar o contrato real antes de adicionar suporte a novos formatos de resposta, sem gastar chamadas extras apenas para depuração.
+
 Se a tela ainda mostrar apenas “Chave da API” e `v1.0`, você está executando uma cópia ou `.exe` anterior. Feche o processo antigo e inicie esta pasta novamente; para executável Windows, gere um novo build com `GERAR_EXE_WINDOWS.bat`. A versão correta mostra `v1.1.0-pixellab` no cabeçalho e o destaque **PixelLab API disponível** em Configuração.
 
 **Codex não é uma API de geração de imagens.** O Forge não lê nem reutiliza tokens privados do login do Codex/ChatGPT. A opção informativa explica essa limitação em vez de simular uma integração insegura; escolha OpenAI API ou PixelLab para gerar imagens.

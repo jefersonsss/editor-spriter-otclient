@@ -164,15 +164,28 @@ class PixelLabAPI:
         if not any(v is not None and float(v)>0 for v in balances):raise ForgeError('Nenhuma chave PixelLab possui saldo disponível.')
         return [f'PixelLab BitForge · chave {i+1} · saldo {v}' for i,v in enumerate(balances)]
     def vision(self,*_args,**_kwargs):raise ForgeError('PixelLab não oferece análise visual estruturada. Use OpenAI para converter outfits antigos.')
+    def _debug_response(self,result,direction,from_cache):
+        """Mostra o contrato recebido sem despejar base64, prompt ou credenciais."""
+        image=result.get('image',{}) if isinstance(result,dict) else {}
+        images=result.get('images',[]) if isinstance(result,dict) else []
+        keys=sorted(str(k) for k in result) if isinstance(result,dict) else []
+        encoded=image.get('base64','') if isinstance(image,dict) else ''
+        count=len(images) if isinstance(images,list) else 0
+        if encoded:count=max(1,count)
+        usage=result.get('usage',{}) if isinstance(result,dict) else {}
+        usage_keys=sorted(str(k) for k in usage) if isinstance(usage,dict) else []
+        self.progress(f'PixelLab debug seguro: origem={"cache" if from_cache else "API"} · direção={direction} · chaves={keys} · imagens={count} · base64_bytes≈{len(encoded)*3//4} · usage={usage_keys}')
     def sprite(self,prompt,guide,context,direction):
         def encoded(a):return {'type':'base64','base64':base64.b64encode(png(a)).decode(),'format':'png'}
         has_context=context[:,:,3].any()
         payload={'description':prompt,'image_size':{'width':64,'height':64},'negative_description':'copy of reference character, same face, same hair, same clothes, background, shadow, text, blur, anti-aliasing, wrong pose, extra limbs','text_guidance_scale':10,'extra_guidance_scale':6 if has_context else 0,'style_strength':55 if has_context else 0,'no_background':True,'seed':0,'outline':'selective outline','shading':'medium shading','detail':'highly detailed','view':'high top-down','direction':direction,'isometric':True,'oblique_projection':False,'coverage_percentage':65,'init_image':encoded(guide),'init_image_strength':300,'style_image':encoded(context) if has_context else None}
         request={'endpoint':self.config['pixellab_base_url'],'payload':payload}
         h=hashlib.sha256(json.dumps(request,sort_keys=True).encode()).hexdigest();p=self.cache/(h+'.json')
-        if p.exists():self.hits+=1;self.progress(f'PixelLab: sprite recuperado do cache ({self.hits})');result=json.loads(p.read_text())
+        from_cache=p.exists()
+        if from_cache:self.hits+=1;self.progress(f'PixelLab: sprite recuperado do cache ({self.hits})');result=json.loads(p.read_text())
         else:
             result=self._request('/generate-image-bitforge',payload);tmp=p.with_suffix('.tmp');tmp.write_text(json.dumps(result));tmp.replace(p)
+        self._debug_response(result,direction,from_cache)
         try:a=decode_png(base64.b64decode(result['image']['base64'],validate=True))
         except Exception as e:raise ForgeError('A PixelLab devolveu uma imagem inválida.') from e
         if a.shape[:2]!=(64,64):raise ForgeError('A PixelLab não devolveu o sprite 64×64 solicitado.')

@@ -198,10 +198,11 @@ class APITests(unittest.TestCase):
     def test_images_multiple_reference_and_generation(self):
         a=atlas16([synthetic().get((1,0,0,0))]*16);self.api.image('duas referencias',[a,a]);self.assertEqual(self.fake.calls[-1][1]['image_count'],2);self.api.image('imagem sem referencia');self.assertEqual(self.fake.calls[-1][0],'/images/generations')
     def test_pixellab_contract_and_key_rotation(self):
-        api=PixelLabAPI({'pixellab_base_url':self.fake.url},['empty-credit','backup-key'],self.temp.name,self.stop)
+        logs=[];api=PixelLabAPI({'pixellab_base_url':self.fake.url},['empty-credit','backup-key'],self.temp.name,self.stop,logs.append)
         guide=synthetic().get((1,0,0,0));out=api.sprite('cavaleiro',guide,blank(),'south')
         self.assertEqual(out.shape,(64,64,4));self.assertEqual(api.key_index,1)
         calls=[c for c in self.fake.calls if c[0]=='/generate-image-bitforge'];self.assertEqual(len(calls),1);self.assertEqual(api.calls,2);self.assertEqual(calls[0][1]['init_image_strength'],300);self.assertEqual(calls[0][1]['style_strength'],0)
+        self.assertTrue(any('debug seguro' in line and 'base64_bytes' in line and 'south' in line for line in logs));self.assertNotIn('iVBOR',json.dumps(logs))
     def test_pixellab_retries_transient_502(self):
         api=PixelLabAPI({'pixellab_base_url':self.fake.url},['flaky-key'],self.temp.name,self.stop)
         out=api.sprite('cavaleiro resiliente',synthetic().get((1,0,0,0)),blank(),'south')
