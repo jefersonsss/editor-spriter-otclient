@@ -155,7 +155,7 @@ def accept_pixellab_sprite(art,guide,component):
     mask=art[:,:,3]>0
     minimum=24 if component=='Base' else 8
     if np.count_nonzero(mask)<minimum:raise ForgeError(f'A PixelLab devolveu {component} vazio ou fragmentado. A resposta não foi salva; gere novamente.')
-    labels,count=ndi.label(mask)
+    labels,count=ndi.label(mask,structure=np.ones((3,3)))
     # Uma Base humana precisa formar um corpo principal. Addons podem ser
     # legitimamente desconectados (duas pernas, duas botas, guarda da arma).
     if component=='Base' and count:
@@ -264,16 +264,23 @@ def create_sequential(prompt,look,groups,api,progress,stop,approve=None,checkpoi
             instruction=('Create ONLY Base as a clean unarmored character' if y==0 else f'Create ONLY {name} equipment')
             request_prefix=(GRID_PROMPT+f'\n{instruction}. DESIGN: {prompt}. EDIT the supplied pose guides: preserve their exact diagonal/isometric posture, facing direction, silhouette, occupied pixels, scale and bottom-right anchor. '
                  'Frames are animation phases, NEVER camera rotation. Preserve exactly the same character identity, palette and materials shown in the locked context. Never redraw or modify locked components; every unrelated pixel must be transparent.\nCELLS: ')
-            if hasattr(api,'sprite'):
+            if hasattr(api,'sprite') or (name=='Base' and hasattr(api,'create_character')):
                 directions=['north','east','south','west']
                 generated_parts=[]
-                for p,g,c in zip(pp,pose_guides,context):
-                    direction=directions[p[2]]
-                    new=api.sprite(pixellab_sprite_prompt(prompt,name,p,direction),neutral_guide(g),c,direction,name)
-                    result.slots[(*p,y,0)]=accept_pixellab_sprite(new,g,name);completed+=1
+                if name=='Base' and hasattr(api,'create_character') and batch_index==0:
+                    base_prompt=pixellab_sprite_prompt(prompt,'Base',sample,'south')
+                    cardinals,char_id=api.create_character(base_prompt)
+                    new=cardinals['south']
+                    result.slots[(*sample,y,0)]=accept_pixellab_sprite(new,pose_guides[0],name);completed+=1
                     if checkpoint:checkpoint(name,result.copy(),completed,len(ordered))
-                    if batch_index or len(pp)>1:
-                        if approve_pose and approve_pose(name,result.copy(),p,completed,len(ordered)) is False:raise Cancelled(f'{name} {pose_id(p)} rejeitado pelo usuário.')
+                elif hasattr(api,'sprite'):
+                    for p,g,c in zip(pp,pose_guides,context):
+                        direction=directions[p[2]]
+                        new=api.sprite(pixellab_sprite_prompt(prompt,name,p,direction),neutral_guide(g),c,direction,name)
+                        result.slots[(*p,y,0)]=accept_pixellab_sprite(new,g,name);completed+=1
+                        if checkpoint:checkpoint(name,result.copy(),completed,len(ordered))
+                        if batch_index or len(pp)>1:
+                            if approve_pose and approve_pose(name,result.copy(),p,completed,len(ordered)) is False:raise Cancelled(f'{name} {pose_id(p)} rejeitado pelo usuário.')
             else:
                 req=request_prefix+pose_descriptions(pp)
                 refs=[atlas16(pose_guides),atlas16(context)]+([first_style] if first_style is not None else [])
@@ -288,6 +295,36 @@ def create_sequential(prompt,look,groups,api,progress,stop,approve=None,checkpoi
                 if approve and approve(label,result.copy()) is False:raise Cancelled(f'Amostra de {name} rejeitada pelo usuário.')
                 sample_approvals[name]={'approved_by':'user' if approve else 'non_interactive','pose':pose_id(sample),'sha256':slot_fingerprint(result,[y])}
                 progress(int(step*95/7),f'Amostra de {name} aprovada; gerando as {len(remaining)} poses restantes')
+                if name=='Base' and hasattr(api,'create_character') and remaining and not approve_pose:
+                    dir_keys=['north','east','south','west']
+                    walk_cycles={}
+                    for p in remaining:
+                        g=guide.get((min(p[0],max(guide.groups)),p[1]%8,p[2],p[3]%2),y if y else 0)
+                        d_name=dir_keys[p[2]]
+                        if p[1]==0:
+                            art=cardinals[d_name]
+                        elif hasattr(api,'animate_walk'):
+                            if d_name not in walk_cycles:
+                                walk_cycles[d_name]=api.animate_walk(cardinals[d_name])
+                            frames=walk_cycles[d_name]
+                            art=frames[p[1]%len(frames)]
+                        else:
+                            art=cardinals[d_name]
+                        result.slots[(*p,y,0)]=accept_pixellab_sprite(art,g,name)
+                    completed=len(ordered)
+                    if checkpoint:checkpoint(name,result.copy(),completed,completed)
+                    break
+                elif hasattr(api,'rotations') and remaining and not approve_pose:
+                    south_art=result.get(sample,y,0)
+                    rots=api.rotations(south_art,pixellab_sprite_prompt(prompt,name,sample,'south'))
+                    dir_keys=['north','east','south','west']
+                    for p in remaining:
+                        g=guide.get((min(p[0],max(guide.groups)),p[1]%8,p[2],p[3]%2),y if y else 0)
+                        art=rots[dir_keys[p[2]]]
+                        result.slots[(*p,y,0)]=accept_pixellab_sprite(art,g,name)
+                    completed=len(ordered)
+                    if checkpoint:checkpoint(name,result.copy(),completed,completed)
+                    break
         if slot_fingerprint(result,locked)!=before:raise ForgeError('A geração alterou componentes já aprovados.')
         approvals[name]=approve_stage(result,y,approve);locked.append(y)
         progress(int((step+1)*95/7),f'{name} aprovado e bloqueado')

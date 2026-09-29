@@ -4,7 +4,7 @@ from pathlib import Path
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
-import io,json,hashlib,base64,time,uuid,ssl
+import io,json,hashlib,base64,time,uuid,ssl,zipfile
 from .core import ForgeError,png,decode_png,Cancelled
 
 DEFAULTS={'provider':'openai','base_url':'https://api.openai.com/v1','pixellab_base_url':'https://api.pixellab.ai/v1','vision_model':'gpt-4.1','image_model':'gpt-image-1.5','quality':'high','background':'transparent','timeout':600,'max_calls':250,'vision_batch':4}
@@ -121,18 +121,24 @@ class PixelLabAPI:
         if not self.keys:raise ForgeError('Configure ao menos uma chave PixelLab. As chaves ficam somente na sessão.')
     def check(self):
         if self.stop and self.stop.is_set():raise Cancelled('Operação cancelada; checkpoints preservados.')
-    def _request(self,path,payload=None,method='POST'):
+    def _request(self,path,payload=None,method='POST',base_url=None,as_bytes=False):
         self.check();last=''
+        root=(base_url or self.config['pixellab_base_url']).rstrip('/')
         for offset in range(len(self.keys)):
             idx=(self.key_index+offset)%len(self.keys);key=self.keys[idx]
             data=None if payload is None else json.dumps(payload).encode()
             for attempt in range(3):
                 if self.calls>=int(self.config['max_calls']):raise ForgeError('Limite de chamadas PixelLab atingido.')
-                req=Request(self.config['pixellab_base_url'].rstrip('/')+path,data=data,headers={'Authorization':'Bearer '+key,'Content-Type':'application/json'},method=method)
+                headers={'Authorization':'Bearer '+key}
+                if payload is not None:headers['Content-Type']='application/json'
+                req=Request(root+path,data=data,headers=headers,method=method)
                 self.calls+=1;self.progress(f'PixelLab: chamada {self.calls} · chave {idx+1}/{len(self.keys)} · {path}'+(f' · tentativa {attempt+1}/3' if attempt else ''))
                 try:
-                    with urlopen(req,timeout=int(self.config['timeout']),context=ssl.create_default_context()) as response:result=json.loads(response.read(20*1024**2))
+                    with urlopen(req,timeout=int(self.config['timeout']),context=ssl.create_default_context()) as response:
+                        body=response.read(20*1024**2)
                     self.key_index=idx
+                    if as_bytes:return body
+                    result=json.loads(body.decode('utf-8'))
                     if 'usage' in result:self.usage.append(result['usage'])
                     return result
                 except HTTPError as e:
@@ -197,3 +203,136 @@ class PixelLabAPI:
         except Exception as e:raise ForgeError('A PixelLab devolveu uma imagem inválida.') from e
         if a.shape[:2]!=(64,64):raise ForgeError('A PixelLab não devolveu o sprite 64×64 solicitado.')
         return a
+    def rotations(self,south_frame,description=''):
+        """Gera as 8 rotações via /v2/generate-8-rotations-v3 e devolve as 4 direções cardeais Tibia."""
+        def encoded(a):return {'type':'base64','base64':base64.b64encode(png(a)).decode(),'format':'png'}
+        payload={'first_frame':encoded(south_frame),'description':description[:2000] if description else None,'no_background':True,'seed':0}
+        request={'cache_version':PIXELLAB_CACHE_VERSION,'endpoint':'generate-8-rotations-v3','payload':payload}
+        h=hashlib.sha256(json.dumps(request,sort_keys=True).encode()).hexdigest();p=self.cache/(h+'.json')
+        if p.exists():
+            self.hits+=1;self.progress(f'PixelLab: rotações recuperadas do cache ({self.hits})');result=json.loads(p.read_text())
+        else:
+            v2_base=self.config['pixellab_base_url'].replace('/v1','/v2')
+            init_resp=self._request('/generate-8-rotations-v3',payload,base_url=v2_base)
+            job_id=init_resp.get('background_job_id')
+            if not job_id:raise ForgeError('A PixelLab não devolveu identificador para as rotações.')
+            self.progress(f'PixelLab: gerando rotações coerentes (job {job_id[:8]}…)')
+            for _ in range(90):
+                self.check();time.sleep(2)
+                job=self._request(f'/background-jobs/{job_id}',method='GET',base_url=v2_base)
+                st=job.get('status')
+                if st=='completed':
+                    result=job.get('last_response',{})
+                    tmp=p.with_suffix('.tmp');tmp.write_text(json.dumps(result));tmp.replace(p)
+                    break
+                elif st=='failed':
+                    raise ForgeError('A geração de rotações da PixelLab falhou no servidor.')
+            else:
+                raise ForgeError('Timeout aguardando as 8 rotações da PixelLab.')
+        raw_images=result.get('images',[])
+        if len(raw_images)<8:
+            raise ForgeError('A PixelLab não devolveu as 8 rotações esperadas.')
+        # Ordem das 8 rotações na PixelLab:
+        # 0: South, 1: South-West, 2: West, 3: North-West, 4: North, 5: North-East, 6: East, 7: South-East
+        # Convenção Tibia: Norte (0), Leste (1), Sul (2), Oeste (3)
+        return {
+            'south': decode_png(base64.b64decode(raw_images[0]['base64'])),
+            'west': decode_png(base64.b64decode(raw_images[2]['base64'])),
+            'north': decode_png(base64.b64decode(raw_images[4]['base64'])),
+            'east': decode_png(base64.b64decode(raw_images[6]['base64']))
+        }
+    def create_character(self,description,reference_image=None):
+        """Cria o personagem via /v2/create-character-v3 e devolve as 4 direções cardeais Tibia ('south', 'north', 'east', 'west') e o character_id."""
+        def encoded(a):return {'type':'base64','base64':base64.b64encode(png(a)).decode(),'format':'png'}
+        payload={'description':description[:2000],'image_size':{'width':64,'height':64},'view':'high top-down','template_id':'mannequin','no_background':True,'seed':0}
+        if reference_image is not None:
+            payload['reference_image']=encoded(reference_image)
+        else:
+            payload['outline']='single color black outline'
+            payload['detail']='medium detail'
+        request={'cache_version':PIXELLAB_CACHE_VERSION,'endpoint':'create-character-v3','payload':payload}
+        h=hashlib.sha256(json.dumps(request,sort_keys=True).encode()).hexdigest();p=self.cache/(h+'.json')
+        if p.exists():
+            self.hits+=1;self.progress(f'PixelLab: personagem recuperado do cache ({self.hits})');cached=json.loads(p.read_text())
+            cardinals={d:decode_png(base64.b64decode(b64)) for d,b64 in cached.get('cardinals',{}).items()}
+            return cardinals,cached.get('character_id','')
+        v2_base=self.config['pixellab_base_url'].replace('/v1','/v2')
+        init_resp=self._request('/create-character-v3',payload,base_url=v2_base)
+        job_id=init_resp.get('background_job_id');char_id=init_resp.get('character_id','')
+        if not job_id:raise ForgeError('A PixelLab não devolveu identificador para a criação do personagem.')
+        self.progress(f'PixelLab: criando personagem coerente (job {job_id[:8]}…)')
+        last_resp={}
+        for _ in range(90):
+            self.check();time.sleep(2)
+            job=self._request(f'/background-jobs/{job_id}',method='GET',base_url=v2_base)
+            st=job.get('status')
+            if st=='completed':
+                last_resp=job.get('last_response',{})
+                if not char_id:char_id=last_resp.get('character_id','')
+                break
+            elif st=='failed':
+                raise ForgeError('A criação do personagem na PixelLab falhou no servidor.')
+        else:
+            raise ForgeError('Timeout aguardando a criação do personagem na PixelLab.')
+        cardinals={}
+        if char_id:
+            try:
+                zip_data=self._request(f'/characters/{char_id}/zip',method='GET',base_url=v2_base,as_bytes=True)
+                with zipfile.ZipFile(io.BytesIO(zip_data)) as z:
+                    names=z.namelist()
+                    for d in ['south','north','east','west']:
+                        matches=[n for n in names if n.endswith(f'/{d}.png') or n==f'{d}.png']
+                        if matches:cardinals[d]=decode_png(z.read(matches[0]))
+            except Exception:pass
+        if len(cardinals)<4 and 'images' in last_resp:
+            raw_images=last_resp['images']
+            if len(raw_images)>=8:
+                cardinals['south']=decode_png(base64.b64decode(raw_images[0]['base64']))
+                cardinals['west']=decode_png(base64.b64decode(raw_images[2]['base64']))
+                cardinals['north']=decode_png(base64.b64decode(raw_images[4]['base64']))
+                cardinals['east']=decode_png(base64.b64decode(raw_images[6]['base64']))
+        if len(cardinals)<4 and 'storage_urls' in last_resp:
+            for d in ['south','north','east','west']:
+                if d in last_resp['storage_urls'] and d not in cardinals:
+                    try:
+                        url=last_resp['storage_urls'][d]
+                        key=self.keys[self.key_index]
+                        req=Request(url,headers={'Authorization':'Bearer '+key,'User-Agent':'Mozilla/5.0'})
+                        with urlopen(req,timeout=int(self.config['timeout']),context=ssl.create_default_context()) as resp:
+                            cardinals[d]=decode_png(resp.read(10*1024**2))
+                    except Exception:pass
+        if len(cardinals)<4:raise ForgeError('A PixelLab não devolveu todas as rotações cardeais do personagem.')
+        serializable={'character_id':char_id,'cardinals':{d:base64.b64encode(png(art)).decode() for d,art in cardinals.items()}}
+        tmp=p.with_suffix('.tmp');tmp.write_text(json.dumps(serializable));tmp.replace(p)
+        return cardinals,char_id
+    def animate_walk(self,first_frame,action='walking',frame_count=8):
+        """Gera o ciclo de caminhada via /v2/animate-with-text-v3 e devolve a lista de frames RGBA."""
+        def encoded(a):return {'type':'base64','base64':base64.b64encode(png(a)).decode(),'format':'png'}
+        payload={'first_frame':encoded(first_frame),'action':action,'frame_count':frame_count,'no_background':True,'seed':0}
+        request={'cache_version':PIXELLAB_CACHE_VERSION,'endpoint':'animate-with-text-v3','payload':payload}
+        h=hashlib.sha256(json.dumps(request,sort_keys=True).encode()).hexdigest();p=self.cache/(h+'.json')
+        if p.exists():
+            self.hits+=1;self.progress(f'PixelLab: animação recuperada do cache ({self.hits})');result=json.loads(p.read_text())
+        else:
+            v2_base=self.config['pixellab_base_url'].replace('/v1','/v2')
+            init_resp=self._request('/animate-with-text-v3',payload,base_url=v2_base)
+            job_id=init_resp.get('background_job_id')
+            if not job_id:raise ForgeError('A PixelLab não devolveu identificador para a animação.')
+            self.progress(f'PixelLab: gerando ciclo de caminhada (job {job_id[:8]}…)')
+            for _ in range(90):
+                self.check();time.sleep(2)
+                job=self._request(f'/background-jobs/{job_id}',method='GET',base_url=v2_base)
+                st=job.get('status')
+                if st=='completed':
+                    result=job.get('last_response',{})
+                    tmp=p.with_suffix('.tmp');tmp.write_text(json.dumps(result));tmp.replace(p)
+                    break
+                elif st=='failed':
+                    raise ForgeError('A geração de animação da PixelLab falhou no servidor.')
+            else:
+                raise ForgeError('Timeout aguardando a animação da PixelLab.')
+        raw_images=result.get('images',[])
+        if not raw_images:raise ForgeError('A PixelLab não devolveu frames de animação.')
+        return [decode_png(base64.b64decode(img['base64'])) for img in raw_images]
+
+

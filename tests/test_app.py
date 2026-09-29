@@ -30,15 +30,43 @@ class ProviderHandler(BaseHTTPRequestHandler):
     def log_message(self,*args):pass
     def send(self,obj,code=200):
         data=json.dumps(obj).encode();self.send_response(code);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(data)));self.end_headers();self.wfile.write(data)
+    def send_bytes(self,data,content_type='application/zip',code=200):
+        self.send_response(code);self.send_header('Content-Type',content_type);self.send_header('Content-Length',str(len(data)));self.end_headers();self.wfile.write(data)
     def do_GET(self):
-        self.server.calls.append((self.path,None));self.send({'type':'usd','usd':10} if self.path=='/balance' else {'data':[{'id':'gpt-4.1'},{'id':'gpt-image-1.5'}]})
+        self.server.calls.append((self.path,None))
+        if self.path.startswith('/characters/') and self.path.endswith('/zip'):
+            buf=io.BytesIO()
+            with zipfile.ZipFile(buf,'w') as z:
+                p_bytes=png(synthetic().get((1,0,0,0)))
+                for d in ['south','north','east','west']:
+                    z.writestr(f'Idle/rotations/{d}.png',p_bytes)
+            self.send_bytes(buf.getvalue())
+        elif self.path.startswith('/background-jobs/'):
+            ref=getattr(self.server,'rotation_frame',None)
+            if ref is None:ref=png(synthetic().get((1,0,0,0)))
+            b64=base64.b64encode(ref).decode()
+            images=[{'type':'base64','base64':b64,'format':'png'} for _ in range(8)]
+            self.send({'id':self.path.split('/')[-1],'status':'completed','last_response':{'images':images,'character_id':'char-test-123'},'usage':{'type':'usd','usd':.02}})
+        else:
+            self.send({'type':'usd','usd':10} if self.path=='/balance' else {'data':[{'id':'gpt-4.1'},{'id':'gpt-image-1.5'}]})
     def do_POST(self):
         raw=self.rfile.read(int(self.headers['Content-Length']));ctype=self.headers['Content-Type']
         auth=self.headers['Authorization']
         if auth=='Bearer empty-credit':self.send({'detail':'Insufficient credits'},402);return
         if auth=='Bearer flaky-key' and not getattr(self.server,'flaky_failed',False):self.server.flaky_failed=True;self.send({'detail':'Inference stream ended without producing a result.'},502);return
         assert auth in ['Bearer test-key','Bearer backup-key','Bearer flaky-key']
-        if self.path=='/responses':
+        if self.path=='/generate-8-rotations-v3':
+            body=json.loads(raw);self.server.calls.append((self.path,body))
+            first=body['first_frame']['base64']
+            self.server.rotation_frame=base64.b64decode(first)
+            self.send({'background_job_id':'job-rot-123','status':'processing','usage':{'type':'usd','usd':.02}})
+        elif self.path=='/create-character-v3':
+            body=json.loads(raw);self.server.calls.append((self.path,body))
+            self.send({'background_job_id':'job-char-123','character_id':'char-test-123','status':'processing','usage':{'type':'usd','usd':.02}})
+        elif self.path=='/animate-with-text-v3':
+            body=json.loads(raw);self.server.calls.append((self.path,body))
+            self.send({'background_job_id':'job-anim-123','status':'processing','usage':{'type':'usd','usd':.02}})
+        elif self.path=='/responses':
             body=json.loads(raw);self.server.calls.append((self.path,body));fmt=body['text']['format'];assert fmt['strict'] and fmt['type']=='json_schema'
             if fmt['name']=='stage_review':answer={'approved':True,'identity_preserved':True,'fit_coherent':True,'directions_coherent':True,'notes':['Fixture HTTP; não é análise artística real.']}
             else:
@@ -230,6 +258,45 @@ class APITests(unittest.TestCase):
         api=PixelLabAPI({'pixellab_base_url':self.fake.url},['flaky-key'],self.temp.name,self.stop)
         out=api.sprite('cavaleiro resiliente',synthetic().get((1,0,0,0)),blank(),'south')
         self.assertEqual(out.shape,(64,64,4));self.assertEqual(api.calls,2)
+    def test_pixellab_rotations_generates_cardinal_directions(self):
+        api=PixelLabAPI({'pixellab_base_url':self.fake.url},['test-key'],self.temp.name,self.stop)
+        rots=api.rotations(synthetic().get((1,0,0,0)),'character rotations')
+        self.assertEqual(sorted(rots.keys()),['east','north','south','west'])
+        for d in rots:self.assertEqual(rots[d].shape,(64,64,4))
+    def test_pixellab_create_character_generates_cardinals_and_id(self):
+        api=PixelLabAPI({'pixellab_base_url':self.fake.url},['test-key'],self.temp.name,self.stop)
+        cardinals,char_id=api.create_character('jovem guerreiro base')
+        self.assertEqual(sorted(cardinals.keys()),['east','north','south','west'])
+        self.assertEqual(char_id,'char-test-123')
+        for d in cardinals:self.assertEqual(cardinals[d].shape,(64,64,4))
+    def test_pixellab_animate_walk_returns_frame_sequence(self):
+        api=PixelLabAPI({'pixellab_base_url':self.fake.url},['test-key'],self.temp.name,self.stop)
+        frames=api.animate_walk(synthetic().get((1,0,0,0)),'walking',8)
+        self.assertEqual(len(frames),8)
+        for f in frames:self.assertEqual(f.shape,(64,64,4))
+    def test_sequential_creation_uses_create_character_for_base(self):
+        class MockPixelLab:
+            config={'background':'transparent'}
+            def __init__(self):
+                self.created=False;self.animated=False;self.sprites=0
+            def create_character(self,prompt,ref=None):
+                self.created=True
+                f=synthetic().get((1,0,0,0))
+                return {'south':f.copy(),'north':f.copy(),'east':f.copy(),'west':f.copy()},'mock-char-1'
+            def animate_walk(self,first_frame,action='walking',frame_count=8):
+                self.animated=True
+                return [first_frame.copy() for _ in range(frame_count)]
+            def sprite(self,prompt,guide,context,direction,component='Base'):
+                self.sprites+=1
+                return guide.copy()
+            def rotations(self,south_frame,desc=''):
+                return {'south':south_frame.copy(),'north':south_frame.copy(),'east':south_frame.copy(),'west':south_frame.copy()}
+        mock=MockPixelLab()
+        groups={1:{'type':0,'frames':1,'z':1},2:{'type':1,'frames':2,'z':1}}
+        res=create_sequential('Mago arcano',2010,groups,mock,lambda *_:None,self.stop)
+        self.assertTrue(mock.created)
+        self.assertTrue(mock.animated)
+        self.assertIsNotNone(res)
     def test_pixellab_cache_version_invalidates_old_malformed_result(self):
         api=PixelLabAPI({'pixellab_base_url':self.fake.url},['backup-key'],self.temp.name,self.stop)
         guide=synthetic().get((1,0,0,0));api.sprite('novo guerreiro',guide,blank(),'south')
@@ -330,11 +397,11 @@ class ServerTests(unittest.TestCase):
             limit=time.time()+10
             while time.time()<limit and self.j('/api/job')['status']!='awaiting_approval':time.sleep(.05)
             job=self.j('/api/job');self.assertEqual(job['review_kind'],'sample');self.assertIn('Base',job['stage'])
-            self.assertEqual(len([c for c in fake.calls if c[0]=='/generate-image-bitforge']),1)
+            self.assertEqual(len([c for c in fake.calls if c[0]=='/create-character-v3']),1)
             raw,_=self.request('/api/export_checkpoint');self.assertEqual(read_package(raw).look,2008)
             self.j('/api/approve_stage',{'approved':True})
             while time.time()<limit and (self.j('/api/job')['status']!='awaiting_approval' or self.j('/api/job').get('review_kind')!='pose'):time.sleep(.05)
-            job=self.j('/api/job');self.assertEqual(job['review_kind'],'pose');self.assertEqual(len([c for c in fake.calls if c[0]=='/generate-image-bitforge']),2)
+            job=self.j('/api/job');self.assertEqual(job['review_kind'],'pose');self.assertEqual(len([c for c in fake.calls if c[0]=='/generate-image-bitforge']),1)
             self.j('/api/approve_stage',{'approved':False});self.server.state.worker.join(5);self.assertEqual(self.j('/api/job')['status'],'cancelled')
 
 # Mantido separado para não poluir os contratos de produção.
