@@ -97,7 +97,33 @@ def read_package(source: bytes | str | Path) -> Outfit:
             acc=groups.setdefault(g,{'type':group_type,'frames':0,'z':0})
             if acc['type']!=group_type:raise ForgeError('Tipo de grupo inconsistente.')
             acc['frames']=max(acc['frames'],f+1);acc['z']=max(acc['z'],zv+1)
-        if not slots:raise ForgeError('Nenhum PNG de outfit reconhecido no ZIP.')
+        if not slots:
+            # Exportação nativa PixelLab 3.x: aproveita as rotações coerentes que
+            # o próprio gerador já produziu, em vez de recriá-las imagem a imagem.
+            manifests=[]
+            for info in z.infolist():
+                if PurePosixPath(info.filename).suffix.lower()=='.json' and info.file_size<=2*1024**2:
+                    try:
+                        candidate=json.loads(z.read(info))
+                        if candidate.get('export_version') and isinstance(candidate.get('states'),list):manifests.append(candidate)
+                    except (UnicodeDecodeError,json.JSONDecodeError):pass
+            if manifests:
+                manifest=manifests[0];states=manifest['states']
+                if not states:raise ForgeError('Exportação PixelLab sem estados.')
+                state=states[0];character=state.get('character',{});size=character.get('size',{})
+                if size!={'width':64,'height':64}:raise ForgeError('A exportação PixelLab precisa usar sprites 64×64.')
+                rotations=state.get('frames',{}).get('rotations',{})
+                names=set(z.namelist());mapping={'north':0,'east':1,'south':2,'west':3}
+                groups={1:{'type':0,'frames':1,'z':1}};look=2000
+                for direction,di in mapping.items():
+                    filename=str(rotations.get(direction,''))
+                    if not filename or filename not in names:raise ForgeError(f'Exportação PixelLab sem rotação {direction}.')
+                    a=decode_png(z.read(filename),expected=(64,64));slots[(1,0,di,0,0,0)]=binary(a)
+                    for y in range(7):
+                        for layer in range(2):slots.setdefault((1,0,di,0,y,layer),blank())
+                looks={look};meta={'origin':'pixellab_export','pixellab_group_id':str(manifest.get('group_id','')),'pixellab_character_id':str(character.get('id','')),'pixellab_export_version':str(manifest.get('export_version',''))}
+                notes.append('Importação PixelLab: rotações diagonais foram preservadas no ZIP de origem, mas o perfil atual usa Norte/Leste/Sul/Oeste. LookType inicial 2000; ajuste antes de exportar.')
+            else:raise ForgeError('Nenhum PNG de outfit reconhecido no ZIP.')
         if len(looks)!=1:raise ForgeError('Importe apenas um LookType por ZIP.')
         if sum(v['frames']*v['z']*4 for v in groups.values())>1024:raise ForgeError('Outfit excede 1.024 poses.')
         outfit=Outfit(looks.pop(),groups,slots,notes,meta)
