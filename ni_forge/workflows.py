@@ -150,18 +150,33 @@ def conform_to_guide(art,guide,component=None,preserve_direction=False):
     return binary(out)
 
 def accept_pixellab_sprite(art,guide,component):
-    """Preserva a resposta PixelLab; valida em vez de redesenhá-la localmente."""
+    """Valida a arte e a translada para a âncora Tibia, sem redimensioná-la."""
     art=binary(art)
     mask=art[:,:,3]>0
-    if np.count_nonzero(mask)<24:raise ForgeError(f'A PixelLab devolveu {component} vazio ou fragmentado. A resposta não foi salva; gere novamente.')
+    minimum=24 if component=='Base' else 8
+    if np.count_nonzero(mask)<minimum:raise ForgeError(f'A PixelLab devolveu {component} vazio ou fragmentado. A resposta não foi salva; gere novamente.')
     labels,count=ndi.label(mask)
-    if count:
+    # Uma Base humana precisa formar um corpo principal. Addons podem ser
+    # legitimamente desconectados (duas pernas, duas botas, guarda da arma).
+    if component=='Base' and count:
         sizes=np.bincount(labels.ravel())[1:]
         if sizes.size and sizes.max()<np.count_nonzero(mask)*.55:
             raise ForgeError(f'A PixelLab devolveu {component} em fragmentos desconectados. A resposta não foi salva; gere novamente.')
     if component!='Base' and np.count_nonzero(mask)>max(48,np.count_nonzero(guide[:,:,3]>0)*3.5):
         raise ForgeError(f'A PixelLab devolveu um personagem completo ao criar {component}. A resposta não foi salva.')
-    return art
+    source_box=bbox(mask);target_box=bbox(guide[:,:,3]>0)
+    if source_box is None or target_box is None:raise ForgeError(f'A PixelLab devolveu {component} sem âncora utilizável.')
+    sx0,sy0,sx1,sy1=source_box;_tx0,_ty0,tx1,ty1=target_box
+    # O outfit 2x2 ancora o desenho no quadrante inferior direito. Movemos a
+    # resposta inteira; não esticamos, giramos, recolorimos nem mudamos pixels.
+    dx=tx1-sx1;dy=ty1-sy1
+    out=blank();src_x0=max(0,-dx);src_y0=max(0,-dy);src_x1=min(64,64-dx);src_y1=min(64,64-dy)
+    if src_x1<=src_x0 or src_y1<=src_y0:raise ForgeError(f'A PixelLab devolveu {component} fora da área útil do quadro.')
+    dst_x0=src_x0+dx;dst_y0=src_y0+dy;dst_x1=src_x1+dx;dst_y1=src_y1+dy
+    out[dst_y0:dst_y1,dst_x0:dst_x1]=art[src_y0:src_y1,src_x0:src_x1]
+    if np.count_nonzero(out[:,:,3])!=np.count_nonzero(mask):
+        raise ForgeError(f'{component} é maior que a área compatível com a âncora Tibia; a resposta não foi cortada nem salva.')
+    return out
 
 def neutral_guide(guide):
     """Remove cores/rosto/roupa Golden, mantendo somente volume e pose."""
@@ -191,10 +206,13 @@ CREATE_ORDER=[0,1,2,3,4,6,5]  # Base, Helmet, Armor, Legs, Boots, Shield, Weapon
 def pixellab_sprite_prompt(prompt,name,pose,direction):
     """Pedido de UMA imagem 64x64; não mistura o contrato de atlas da OpenAI."""
     component=('unarmored base character, body and simple underclothes only' if name=='Base' else f'isolated {name} equipment layer only')
+    base_contract=('This is a classic Tibia/OTServ modular mannequin base: compact semi-chibi anatomy, oversized readable head, short torso, short limbs, '
+                   'close-fitting plain undershirt and trousers made to be covered by separate armor layers; no armor, no equipment. ' if name=='Base' else '')
     return (f'Create exactly one 64x64 transparent-background isometric RPG pixel-art sprite. '
             f'Component: {component}. Direction: {direction}. Animation frame: {pose[1]}. '
-            f'Character design: {prompt}. Use the grayscale init image only for approximate pose, scale and bottom anchor; '
-            'do not copy its character design. Keep crisp 1-pixel details, a compact readable silhouette and no detached decorative particles. '
+            f'{base_contract}Character design: {prompt}. The grayscale init image is a geometry-only mannequin: follow its high top-down body proportions, facing, scale and lower-right anchor, '
+            'but never copy colors, face, hair or clothing design. Occupy the lower-right 32x32 tile area like the mannequin, not the center of the 64x64 canvas. '
+            'Keep crisp 1-pixel details, a compact readable silhouette and no detached decorative particles. '
             'Draw only the requested component; every unrelated pixel must be transparent.')
 
 def creation_guide(look,groups):

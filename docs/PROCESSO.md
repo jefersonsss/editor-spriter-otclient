@@ -23,15 +23,16 @@ O Golden possui 128 poses, sete linhas e duas camadas: 1.792 quadros e 7.168 ref
 
 ## Criação por prompt
 
-Na Base PixelLab, o Forge mostra e salva os pixels 64×64 devolvidos pela API,
-sem girar, comprimir ou recortar o personagem para a silhueta Golden. A Base
-também não envia o Golden como `init_image`: a referência visual da esquerda é
-somente um guia para o usuário. Respostas antigas do cache, produzidas pelo
-pipeline que deformava a imagem, são automaticamente ignoradas por versão.
+Na Base PixelLab, o Forge mantém o desenho e os pixels 64×64 devolvidos pela API,
+sem girar, comprimir ou reconstruir a silhueta Golden. Ele apenas translada o
+sprite inteiro para a âncora inferior direita exigida pelos quadros 2×2 do Tibia.
+A API recebe uma versão neutra em cinza do manequim, com influência baixa, para
+orientar anatomia, câmera e escala sem copiar roupa, rosto ou paleta. Respostas
+do cache de versões anteriores são automaticamente ignoradas.
 
-Em vez de gerar um FULL para depois tentar separá-lo, cria diretamente a Base e um addon por vez. Para cada componente, gera primeiro somente a pose principal Sul e exige aprovação humana antes de gastar chamadas com as poses restantes. A resposta PixelLab é preservada pixel a pixel e validada contra conteúdo vazio ou fragmentado antes do checkpoint; o contrato geométrico legado continua restrito ao gerador de atlas/OpenAI.
+Em vez de gerar um FULL para depois tentar separá-lo, cria diretamente a Base e um addon por vez. Para cada componente, gera primeiro somente a pose principal Sul e exige aprovação humana antes de gastar chamadas com as poses restantes. A resposta PixelLab é validada contra conteúdo vazio ou fragmentado e ancorada por translação, sem escala ou rotação, antes do checkpoint; o contrato geométrico legado continua restrito ao gerador de atlas/OpenAI.
 
-Nos addons PixelLab, o guia perde todas as cores e detalhes Golden e vira apenas um volume neutro em cinza. Na Base não há `init_image` nem referência de estilo. Assim, o resultado exibido é a imagem efetivamente devolvida pelo provedor, e não uma reconstrução local sobre o Golden.
+Em todas as etapas PixelLab, o guia perde cores e detalhes Golden e vira apenas um volume neutro em cinza. Na Base sua influência estrutural é menor e não há referência de estilo; nos addons, o resultado aprovado fornece a identidade visual. Assim, o resultado exibido continua sendo a arte do provedor, apenas posicionada na âncora correta, e não uma reconstrução local sobre o Golden.
 
 O modo padrão pausa também depois de cada resposta PixelLab, publica exatamente a pose recebida e espera aprovação antes da chamada seguinte. O usuário pode trocar para revisão por etapas ou execução automática. Checkpoints parciais podem ser baixados durante o job; a coluna esquerda continua mostrando apenas o guia estrutural, enquanto a direita mostra o resultado efetivamente gerado.
 

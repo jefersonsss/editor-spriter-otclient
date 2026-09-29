@@ -174,14 +174,18 @@ class GuardTests(unittest.TestCase):
     def test_pixellab_prompt_requests_one_sprite_not_an_atlas(self):
         prompt=pixellab_sprite_prompt('guerreiro original','Base',(1,0,2,0),'south')
         self.assertIn('exactly one 64x64',prompt);self.assertIn('unarmored base',prompt)
+        self.assertIn('lower-right 32x32',prompt);self.assertIn('modular mannequin base',prompt)
         self.assertNotIn('1024x1024',prompt);self.assertNotIn('4 columns',prompt);self.assertNotIn('CELLS',prompt)
     def test_full_character_is_rejected_for_isolated_addon(self):
         guide=blank();guide[10:18,25:39]=[100,100,100,255]
         with self.assertRaisesRegex(ForgeError,'personagem completo'):conform_to_guide(synthetic().get((1,0,0,0)),guide,'Helmet')
-    def test_pixellab_base_is_preserved_pixel_for_pixel(self):
+    def test_pixellab_base_is_preserved_and_moved_to_tibia_anchor(self):
         art=blank();art[12:49,23:42]=[18,72,131,255]
         guide=synthetic().get((1,0,0,0))
-        self.assertTrue(np.array_equal(accept_pixellab_sprite(art,guide,'Base'),art))
+        out=accept_pixellab_sprite(art,guide,'Base')
+        self.assertEqual(np.count_nonzero(out[:,:,3]),np.count_nonzero(art[:,:,3]))
+        self.assertEqual(bbox(out[:,:,3]>0)[2:],bbox(guide[:,:,3]>0)[2:])
+        self.assertTrue(np.all(out[out[:,:,3]>0,:3]==[18,72,131]))
     def test_fragmented_pixellab_result_is_not_checkpointed(self):
         art=blank()
         for y,x in [(4,4),(12,50),(31,6),(55,55)]:art[y:y+3,x:x+3]=[255,255,255,255]
@@ -213,7 +217,7 @@ class APITests(unittest.TestCase):
         logs=[];api=PixelLabAPI({'pixellab_base_url':self.fake.url},['empty-credit','backup-key'],self.temp.name,self.stop,logs.append)
         guide=synthetic().get((1,0,0,0));out=api.sprite('cavaleiro',guide,blank(),'south')
         self.assertEqual(out.shape,(64,64,4));self.assertEqual(api.key_index,1)
-        calls=[c for c in self.fake.calls if c[0]=='/generate-image-bitforge'];self.assertEqual(len(calls),1);self.assertEqual(api.calls,2);self.assertNotIn('init_image',calls[0][1]);self.assertEqual(calls[0][1]['style_strength'],0)
+        calls=[c for c in self.fake.calls if c[0]=='/generate-image-bitforge'];self.assertEqual(len(calls),1);self.assertEqual(api.calls,2);self.assertIn('init_image',calls[0][1]);self.assertEqual(calls[0][1]['init_image_strength'],160);self.assertEqual(calls[0][1]['style_strength'],0)
         self.assertTrue(any('debug seguro' in line and 'base64_bytes' in line and 'south' in line for line in logs));self.assertNotIn('iVBOR',json.dumps(logs))
     def test_pixellab_retries_transient_502(self):
         api=PixelLabAPI({'pixellab_base_url':self.fake.url},['flaky-key'],self.temp.name,self.stop)

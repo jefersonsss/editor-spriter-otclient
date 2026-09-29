@@ -59,7 +59,7 @@ Antes de expandir cada componente, o Forge gera somente a pose principal Sul e p
 
 Em **Validação durante a criação**, escolha entre revisar cada resposta PixelLab (padrão), revisar apenas a amostra e o componente completo, ou gerar automaticamente sem pausas. O botão **Baixar checkpoint** permanece disponível durante a tarefa e baixa o estado parcial para reabertura no Forge; esse checkpoint incompleto não é o ZIP final para importar no Studio.
 
-O guia Golden enviado na criação é neutralizado para tons de cinza sem rosto, roupa ou paleta reutilizáveis. Ele define somente pose e volume aproximado. A PixelLab recebe influência estrutural reduzida e o resultado pode criar um contorno próprio dentro de uma margem segura, evitando que a Base nova seja uma cópia ou simples recoloração da Golden.
+O guia Golden enviado na criação é neutralizado para tons de cinza sem rosto, roupa ou paleta reutilizáveis. Ele orienta a anatomia compacta, a câmera, a escala e a âncora inferior direita típica do quadro Tibia. A Base recebe influência estrutural baixa, pode criar contorno e identidade próprios e, ao retornar, é somente transladada para a âncora correta — nunca redimensionada, girada ou reconstruída sobre a Golden.
 
 Cada chamada PixelLab pede exatamente um sprite 64×64; ela não recebe as instruções de atlas 1024×1024 usadas pelo provedor OpenAI. Respostas que tragam um personagem inteiro no lugar de um addon isolado são rejeitadas antes de contaminar o projeto.
 
