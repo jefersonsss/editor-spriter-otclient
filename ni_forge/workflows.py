@@ -1,11 +1,11 @@
 from __future__ import annotations
 from pathlib import Path
-import sys,importlib.util,json,math,copy
+import sys,importlib.util,json,math,copy,re
 import numpy as np
 from scipy import ndimage as ndi
 from PIL import Image,ImageDraw
 from .core import *
-from .ai import API,ANALYZE_PROMPT,ANALYSIS_SCHEMA,QC_SCHEMA
+from .ai import API,ANALYZE_PROMPT,ANALYSIS_SCHEMA
 
 def resources():return Path(getattr(sys,'_MEIPASS',Path(__file__).resolve().parent.parent))
 def reference(name='golden_modular_v8.zip'):return read_package(resources()/'data/references'/name)
@@ -121,6 +121,181 @@ def align_new(art,target):
     x=tx0+(tx1-tx0-w)//2;y=ty1-h;out=blank();out[y:y+h,x:x+w]=tile
     return binary(out)
 
+def conform_to_guide(art,guide,component=None,preserve_direction=False):
+    """Encaixa arte nova na área validada sem copiar o contorno pixel a pixel."""
+    target=guide[:,:,3]>0
+    source=art[:,:,3]>0
+    if component and component!='Base' and source.sum()>target.sum()*3.5:
+        raise ForgeError(f'A PixelLab devolveu um personagem completo ao criar {component}. Rejeitado antes de salvar; tente novamente com outro seed ou provedor.')
+    if preserve_direction:
+        # A PixelLab já recebeu uma direção explícita. Inferir rotação por PCA
+        # fazia braços, armas e poses assimétricas parecerem deitados.
+        fitted=align_new(art,target)
+    else:
+        # O gerador de atlas pode devolver conteúdo vertical e ainda precisa do
+        # ajuste legado antes do encaixe (não altera a fonte original).
+        def axis(mask):
+            ys,xs=np.where(mask)
+            if len(xs)<2:return 0.0
+            values,vectors=np.linalg.eigh(np.cov(np.stack([xs,ys])))
+            v=vectors[:,int(np.argmax(values))];return math.atan2(v[1],v[0])
+        delta=math.degrees((axis(target)-axis(source)+math.pi/2)%math.pi-math.pi/2)
+        fitted=align_new(rgba(Image.fromarray(art).rotate(delta,Image.Resampling.NEAREST,expand=True)),target)
+    visible=fitted[:,:,3]>0
+    if not visible.any() or not target.any():raise ForgeError('A geração não contém arte utilizável para a pose validada.')
+    # Permite um contorno novo dentro de uma margem estrutural segura. A versão
+    # anterior preenchia exatamente o alpha Golden e apagava o design novo.
+    allowed=ndi.binary_dilation(target,iterations=2);out=fitted.copy();out[~allowed]=0
+    if np.count_nonzero(out[:,:,3])<8:raise ForgeError('A arte nova não se encaixou na área estrutural da pose.')
+    return binary(out)
+
+def accept_pixellab_sprite(art,guide,component):
+    """Valida a arte e a translada para a âncora Tibia, sem redimensioná-la."""
+    art=binary(art)
+    mask=art[:,:,3]>0
+    minimum=24 if component=='Base' else 8
+    if np.count_nonzero(mask)<minimum:raise ForgeError(f'A PixelLab devolveu {component} vazio ou fragmentado. A resposta não foi salva; gere novamente.')
+    labels,count=ndi.label(mask)
+    # Uma Base humana precisa formar um corpo principal. Addons podem ser
+    # legitimamente desconectados (duas pernas, duas botas, guarda da arma).
+    if component=='Base' and count:
+        sizes=np.bincount(labels.ravel())[1:]
+        if sizes.size and sizes.max()<np.count_nonzero(mask)*.55:
+            raise ForgeError(f'A PixelLab devolveu {component} em fragmentos desconectados. A resposta não foi salva; gere novamente.')
+    if component!='Base' and np.count_nonzero(mask)>max(48,np.count_nonzero(guide[:,:,3]>0)*3.5):
+        raise ForgeError(f'A PixelLab devolveu um personagem completo ao criar {component}. A resposta não foi salva.')
+    source_box=bbox(mask);target_box=bbox(guide[:,:,3]>0)
+    if source_box is None or target_box is None:raise ForgeError(f'A PixelLab devolveu {component} sem âncora utilizável.')
+    sx0,sy0,sx1,sy1=source_box;_tx0,_ty0,tx1,ty1=target_box
+    if component=='Base' and ((sx1-sx0)>(tx1-_tx0)+6 or (sy1-sy0)>(ty1-_ty0)+6):
+        raise ForgeError('A PixelLab devolveu uma Base grande demais ou um personagem já equipado. Rejeitado antes de salvar; gere uma nova amostra.')
+    # O outfit 2x2 ancora o desenho no quadrante inferior direito. Movemos a
+    # resposta inteira; não esticamos, giramos, recolorimos nem mudamos pixels.
+    dx=tx1-sx1;dy=ty1-sy1
+    out=blank();src_x0=max(0,-dx);src_y0=max(0,-dy);src_x1=min(64,64-dx);src_y1=min(64,64-dy)
+    if src_x1<=src_x0 or src_y1<=src_y0:raise ForgeError(f'A PixelLab devolveu {component} fora da área útil do quadro.')
+    dst_x0=src_x0+dx;dst_y0=src_y0+dy;dst_x1=src_x1+dx;dst_y1=src_y1+dy
+    out[dst_y0:dst_y1,dst_x0:dst_x1]=art[src_y0:src_y1,src_x0:src_x1]
+    if np.count_nonzero(out[:,:,3])!=np.count_nonzero(mask):
+        raise ForgeError(f'{component} é maior que a área compatível com a âncora Tibia; a resposta não foi cortada nem salva.')
+    return out
+
+def neutral_guide(guide):
+    """Remove cores/rosto/roupa Golden, mantendo somente volume e pose."""
+    mask=guide[:,:,3]>0;out=blank()
+    if not mask.any():return out
+    depth=ndi.distance_transform_edt(mask);shade=np.clip(82+depth*12,82,154).astype(np.uint8)
+    out[mask,:3]=np.stack([shade[mask]]*3,axis=1);out[mask,3]=255
+    return out
+
+def slot_fingerprint(result,ys):
+    """Hash dos slots aprovados; torna qualquer alteração posterior detectável."""
+    import hashlib
+    h=hashlib.sha256()
+    for p in result.poses():
+        for y in ys:
+            h.update(result.get(p,y).tobytes());h.update(result.get(p,y,1).tobytes())
+    return h.hexdigest()
+
+def approve_stage(result,y,approve):
+    """Entrega a peça ao usuário; sem callback, a CLI mantém o modo não interativo."""
+    name='Base' if y==0 else PARTS[y]
+    if approve and approve(name,result.copy()) is False:raise Cancelled(f'{name} rejeitado pelo usuário.')
+    return {'approved_by':'user' if approve else 'non_interactive','sha256':slot_fingerprint(result,[y])}
+
+CREATE_ORDER=[0,1,2,3,4,6,5]  # Base, Helmet, Armor, Legs, Boots, Shield, Weapon.
+
+def component_design(prompt,name):
+    """Remove descrições dos outros addons antes de pedir o componente atual."""
+    aliases={'BASE':'Base','HELMET':'Helmet','CAPACETE':'Helmet','ARMOR':'Armor','ARMADURA':'Armor','COURAÇA':'Armor','LEGS':'Legs','PERNAS':'Legs','BOOTS':'Boots','BOTAS':'Boots','SHIELD':'Shield','ESCUDO':'Shield','WEAPON':'Weapon','ARMA':'Weapon'}
+    lines=prompt.splitlines();sections=[];current=None;shared=[]
+    for line in lines:
+        heading=re.sub(r'[^A-ZÁÉÍÓÚÇ ]','',line.strip().upper()).strip()
+        found=next((value for key,value in aliases.items() if heading==key or heading.startswith(key+' ')),None)
+        if found:current=found;sections.append((current,[]));continue
+        if current is None:shared.append(line)
+        else:sections[-1][1].append(line)
+    if not sections:return prompt.strip()
+    selected=next((body for section,body in sections if section==name),[])
+    return ('\n'.join(shared+selected)).strip()
+
+def pixellab_sprite_prompt(prompt,name,pose,direction):
+    """Pedido de UMA imagem 64x64; não mistura o contrato de atlas da OpenAI."""
+    component=('unarmored base character, body and simple underclothes only' if name=='Base' else f'isolated {name} equipment layer only')
+    base_contract=('This is a classic Tibia/OTServ modular mannequin base: compact semi-chibi anatomy, oversized readable head, short torso, short limbs, '
+                   'close-fitting plain undershirt and trousers made to be covered by separate armor layers; no armor, no equipment. ' if name=='Base' else '')
+    design=component_design(prompt,name)
+    return (f'Create exactly one 64x64 transparent-background isometric RPG pixel-art sprite. '
+            f'Component: {component}. Direction: {direction}. Animation frame: {pose[1]}. '
+            f'{base_contract}Character design for this component only: {design}. The grayscale init image is a geometry-only mannequin: follow its high top-down body proportions, facing, scale and lower-right anchor, '
+            'but never copy colors, face, hair or clothing design. Occupy the lower-right 32x32 tile area like the mannequin, not the center of the 64x64 canvas. '
+            'Keep crisp 1-pixel details, a compact readable silhouette and no detached decorative particles. '
+            'Draw only the requested component; every unrelated pixel must be transparent.')
+
+def creation_guide(look,groups):
+    """Fonte visual neutra da criação; nunca é substituída pelo resultado parcial."""
+    ref=reference();out=Outfit(look,copy.deepcopy(groups))
+    for p in out.poses():
+        gp=(min(p[0],max(ref.groups)),p[1]%8,p[2],p[3]%2)
+        out.slots[(*p,0,0)]=ref.get(gp,0).copy();out.slots[(*p,0,1)]=blank()
+    out.metadata={'origin':'creation_pose_guide'};return out
+
+def create_sequential(prompt,look,groups,api,progress,stop,approve=None,checkpoint=None,approve_pose=None):
+    """Cria diretamente Base + addons, exibindo e congelando uma peça por vez."""
+    if len(prompt.strip())<8:raise ForgeError('Descreva o personagem e seu equipamento no prompt.')
+    guide=reference();result=Outfit(look,groups)
+    for p in result.poses():
+        for y in range(7):result.slots[(*p,y,0)]=blank();result.slots[(*p,y,1)]=blank()
+    locked=[];approvals={};sample_approvals={}
+    for step,y in enumerate(CREATE_ORDER):
+        name=PARTS[y];before=slot_fingerprint(result,locked);first_style=None
+        # A primeira chamada cria somente a pose Sul principal. O usuário valida
+        # o design antes de autorizar o custo das demais poses do componente.
+        ordered=sorted(result.poses(),key=lambda p:(p[0],p[3],p[1],p[2]))
+        sample=next((p for p in ordered if p[0]==min(result.groups) and p[1]==0 and p[2]==2 and p[3]==0),ordered[0])
+        remaining=[p for p in ordered if p!=sample]
+        batches=[[sample]]+[remaining[i:i+16] for i in range(0,len(remaining),16)];completed=0
+        for batch_index,pp in enumerate(batches):
+            check_stop(stop);pose_guides=[];context=[]
+            for p in pp:
+                gp=(min(p[0],max(guide.groups)),p[1]%8,p[2],p[3]%2)
+                target=guide.get(gp,y if y else 0);pose_guides.append(target)
+                context.append(result.full(p))
+            instruction=('Create ONLY Base as a clean unarmored character' if y==0 else f'Create ONLY {name} equipment')
+            request_prefix=(GRID_PROMPT+f'\n{instruction}. DESIGN: {prompt}. EDIT the supplied pose guides: preserve their exact diagonal/isometric posture, facing direction, silhouette, occupied pixels, scale and bottom-right anchor. '
+                 'Frames are animation phases, NEVER camera rotation. Preserve exactly the same character identity, palette and materials shown in the locked context. Never redraw or modify locked components; every unrelated pixel must be transparent.\nCELLS: ')
+            if hasattr(api,'sprite'):
+                directions=['north','east','south','west']
+                generated_parts=[]
+                for p,g,c in zip(pp,pose_guides,context):
+                    direction=directions[p[2]]
+                    new=api.sprite(pixellab_sprite_prompt(prompt,name,p,direction),neutral_guide(g),c,direction,name)
+                    result.slots[(*p,y,0)]=accept_pixellab_sprite(new,g,name);completed+=1
+                    if checkpoint:checkpoint(name,result.copy(),completed,len(ordered))
+                    if batch_index or len(pp)>1:
+                        if approve_pose and approve_pose(name,result.copy(),p,completed,len(ordered)) is False:raise Cancelled(f'{name} {pose_id(p)} rejeitado pelo usuário.')
+            else:
+                req=request_prefix+pose_descriptions(pp)
+                refs=[atlas16(pose_guides),atlas16(context)]+([first_style] if first_style is not None else [])
+                generated=api.image(req,refs)
+                if first_style is None:first_style=generated
+                generated_parts=split_generated(generated,16,cols=4,chroma=api.config['background']!='transparent')
+                for p,new,target in zip(pp,generated_parts,pose_guides):result.slots[(*p,y,0)]=conform_to_guide(new,target)
+                completed+=len(pp)
+                if checkpoint:checkpoint(name,result.copy(),completed,len(ordered))
+            if batch_index==0:
+                label=f'{name} · amostra Sul'
+                if approve and approve(label,result.copy()) is False:raise Cancelled(f'Amostra de {name} rejeitada pelo usuário.')
+                sample_approvals[name]={'approved_by':'user' if approve else 'non_interactive','pose':pose_id(sample),'sha256':slot_fingerprint(result,[y])}
+                progress(int(step*95/7),f'Amostra de {name} aprovada; gerando as {len(remaining)} poses restantes')
+        if slot_fingerprint(result,locked)!=before:raise ForgeError('A geração alterou componentes já aprovados.')
+        approvals[name]=approve_stage(result,y,approve);locked.append(y)
+        progress(int((step+1)*95/7),f'{name} aprovado e bloqueado')
+    result.metadata={'engine':'sequential_creation','prompt':prompt,'sample_approvals':sample_approvals,'stage_approvals':approvals,'composition':'python_rgba_base_then_y1_to_y6'}
+    report=validate(result)
+    if not report['ok']:raise ForgeError('Resultado não passou na validação: '+'; '.join(report['errors'][:4]))
+    progress(100,'Outfit criado por etapas e composto em Python.');return result
+
 def create_prompt_source(prompt,look,groups,api,progress,stop):
     if len(prompt.strip())<8:raise ForgeError('Descreva o personagem e seu equipamento no prompt.')
     guide=reference();source=Outfit(look,groups);poses=source.poses();first_style=None
@@ -142,7 +317,7 @@ def create_prompt_source(prompt,look,groups,api,progress,stop):
         progress(int(20*(bi+1)/math.ceil(len(poses)/16)),f'Criando FULL por prompt: lote {bi+1}/{math.ceil(len(poses)/16)}')
     source.metadata={'prompt':prompt,'origin':'new_prompt'};return source
 
-def convert_ai(source,api,progress,stop,look=None,prompt=''):
+def convert_ai(source,api,progress,stop,look=None,prompt='',approve=None):
     plans=analyze(source,api,progress,stop);result=make_modular(source,look);labels={};generated_info={}
     for p in source.poses():
         lab,notes=label_pose(source,p,plans[p]);labels[p]=lab;result.notes.extend(notes)
@@ -167,8 +342,12 @@ def convert_ai(source,api,progress,stop,look=None,prompt=''):
             if np.count_nonzero(new[:,:,3])<20:raise ForgeError('A Base reconstruída ficou vazia/inadequada; a geração precisa ser revisada.')
             result.slots[(*p,0,0)]=new
         progress(35+int(25*(i+1)/len(batches)),f'Reconstruindo roupa-base: lote {i+1}/{len(batches)}')
-    # Uma peça pode não existir no outfit antigo. Cria arte nova nos seus pontos de encaixe.
-    for y in range(1,7):
+    # A Base é aprovada primeiro e fica imutável durante todas as etapas seguintes.
+    approvals={'Base':approve_stage(result,0,approve)};locked=[0]
+    progress(60,'Base aprovada e bloqueada')
+    # Cada peça é concluída, aprovada isoladamente e bloqueada antes da próxima.
+    for y in [1,2,3,4,6,5]:
+        before=slot_fingerprint(result,locked)
         absent=[p for p in source.poses() if not result.get(p,y)[:,:,3].any()]
         for pp in generation_batches(absent):
             req=GRID_PROMPT+f'\nCreate ONLY {PARTS[y]} equipment for each character pose in the guide; every other pixel must be transparent. No body or other equipment. Match the source material/style and anatomy. The equipment must be wearable at the exact same location. Character request: {prompt}.\nCELLS: '+pose_descriptions(pp)
@@ -186,16 +365,11 @@ def convert_ai(source,api,progress,stop,look=None,prompt=''):
                         for later in range(2,5):result.slots[(*p,later,0)][new[:,:,3]>0]=0
                 if not new[:,:,3].any():raise ForgeError(f'{PARTS[y]} gerado não cabe sem encobrir outra peça em {pose_id(p)}; revise a análise.')
                 result.slots[(*p,y,0)]=new;generated_info[pose_id(p)+'_'+PARTS[y]]='created_missing'
-        progress(60+y*5,f'Peça {PARTS[y]} concluída')
-    # Revisão visual da IA é registrada separadamente dos testes de formato.
-    sample=[p for p in source.poses() if p[1]==0][:8]
-    panels=[]
-    for p in sample:
-        for y in [0,2,3]:panels.append(result.get(p,y))
-        panels.append(result.full(p))
-    qc=api.vision('Review this Tibia modular outfit. For each row the four cells are CLEAN BASE, ARMOR ONLY, LEGS ONLY, FULL. Check that Base is actually unarmored clothing, pieces fit, torso is not cut by pants, and the directions are coherent. Do not certify client compatibility. Return structured checks and concrete notes.',[atlas(panels,cols=4,cell=128)],QC_SCHEMA,'outfit_review')
-    if qc['needs_revision'] or not all(qc[k] for k in ['base_clean','pieces_fit','directions_coherent']):result.notes+=['Revisão visual da IA solicita ajuste: '+str(s) for s in (qc['notes'] or ['Verifique corpo, encaixes e direções.'])]
-    result.metadata={'engine':'vision_and_images','prompt':prompt,'source_fingerprint':fingerprint(source),'analysis':{pose_id(p):v for p,v in plans.items()},'generated_pieces':generated_info,'quality_review':qc,'api_models':{'vision':api.config['vision_model'],'image':api.config['image_model']},'api_calls':api.calls,'cache_hits':api.hits,'usage':api.usage,'art_review':'Revisar as prévias; geração artística por IA não equivale a aprovação no cliente.'}
+        if slot_fingerprint(result,locked)!=before:raise ForgeError('Uma etapa alterou componentes já bloqueados.')
+        qc=approve_stage(result,y,approve);locked.append(y);approvals[PARTS[y]]=qc
+        progress(60+y*5,f'{PARTS[y]} aprovado e bloqueado')
+    # O FULL não é reinterpretado pela IA: é composto deterministicamente pelos 7 slots.
+    result.metadata={'engine':'sequential_locked_components','prompt':prompt,'source_fingerprint':fingerprint(source),'analysis':{pose_id(p):v for p,v in plans.items()},'generated_pieces':generated_info,'stage_approvals':approvals,'composition':'python_rgba_base_then_y1_to_y6','api_models':{'vision':api.config['vision_model'],'image':api.config['image_model']},'api_calls':api.calls,'cache_hits':api.hits,'usage':api.usage,'art_review':'Base e seis componentes aprovados em sequência; revisar também no cliente.'}
     report=validate(result,source)
     if not report['ok']:raise ForgeError('Resultado não passou na validação: '+'; '.join(report['errors'][:4]))
     progress(100,'Conversão concluída. Confira as prévias e o relatório antes de importar no cliente.');return result
