@@ -149,6 +149,20 @@ def conform_to_guide(art,guide,component=None,preserve_direction=False):
     if np.count_nonzero(out[:,:,3])<8:raise ForgeError('A arte nova não se encaixou na área estrutural da pose.')
     return binary(out)
 
+def accept_pixellab_sprite(art,guide,component):
+    """Preserva a resposta PixelLab; valida em vez de redesenhá-la localmente."""
+    art=binary(art)
+    mask=art[:,:,3]>0
+    if np.count_nonzero(mask)<24:raise ForgeError(f'A PixelLab devolveu {component} vazio ou fragmentado. A resposta não foi salva; gere novamente.')
+    labels,count=ndi.label(mask)
+    if count:
+        sizes=np.bincount(labels.ravel())[1:]
+        if sizes.size and sizes.max()<np.count_nonzero(mask)*.55:
+            raise ForgeError(f'A PixelLab devolveu {component} em fragmentos desconectados. A resposta não foi salva; gere novamente.')
+    if component!='Base' and np.count_nonzero(mask)>max(48,np.count_nonzero(guide[:,:,3]>0)*3.5):
+        raise ForgeError(f'A PixelLab devolveu um personagem completo ao criar {component}. A resposta não foi salva.')
+    return art
+
 def neutral_guide(guide):
     """Remove cores/rosto/roupa Golden, mantendo somente volume e pose."""
     mask=guide[:,:,3]>0;out=blank()
@@ -220,8 +234,8 @@ def create_sequential(prompt,look,groups,api,progress,stop,approve=None,checkpoi
                 generated_parts=[]
                 for p,g,c in zip(pp,pose_guides,context):
                     direction=directions[p[2]]
-                    new=api.sprite(pixellab_sprite_prompt(prompt,name,p,direction),neutral_guide(g),c,direction)
-                    result.slots[(*p,y,0)]=conform_to_guide(new,g,name,preserve_direction=True);completed+=1
+                    new=api.sprite(pixellab_sprite_prompt(prompt,name,p,direction),neutral_guide(g),c,direction,name)
+                    result.slots[(*p,y,0)]=accept_pixellab_sprite(new,g,name);completed+=1
                     if checkpoint:checkpoint(name,result.copy(),completed,len(ordered))
                     if batch_index or len(pp)>1:
                         if approve_pose and approve_pose(name,result.copy(),p,completed,len(ordered)) is False:raise Cancelled(f'{name} {pose_id(p)} rejeitado pelo usuário.')

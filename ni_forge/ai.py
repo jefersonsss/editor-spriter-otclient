@@ -8,6 +8,7 @@ import io,json,hashlib,base64,time,uuid,ssl
 from .core import ForgeError,png,decode_png,Cancelled
 
 DEFAULTS={'provider':'openai','base_url':'https://api.openai.com/v1','pixellab_base_url':'https://api.pixellab.ai/v1','vision_model':'gpt-4.1','image_model':'gpt-image-1.5','quality':'high','background':'transparent','timeout':600,'max_calls':250,'vision_batch':4}
+PIXELLAB_CACHE_VERSION=2
 
 def obj(properties):return {'type':'object','properties':properties,'required':list(properties),'additionalProperties':False}
 def arr(items):return {'type':'array','items':items}
@@ -175,11 +176,17 @@ class PixelLabAPI:
         usage=result.get('usage',{}) if isinstance(result,dict) else {}
         usage_keys=sorted(str(k) for k in usage) if isinstance(usage,dict) else []
         self.progress(f'PixelLab debug seguro: origem={"cache" if from_cache else "API"} · direção={direction} · chaves={keys} · imagens={count} · base64_bytes≈{len(encoded)*3//4} · usage={usage_keys}')
-    def sprite(self,prompt,guide,context,direction):
+    def sprite(self,prompt,guide,context,direction,component='Base'):
         def encoded(a):return {'type':'base64','base64':base64.b64encode(png(a)).decode(),'format':'png'}
         has_context=context[:,:,3].any()
-        payload={'description':prompt,'image_size':{'width':64,'height':64},'negative_description':'copy of reference character, same face, same hair, same clothes, background, shadow, text, blur, anti-aliasing, wrong pose, extra limbs','text_guidance_scale':10,'extra_guidance_scale':6 if has_context else 0,'style_strength':55 if has_context else 0,'no_background':True,'seed':0,'outline':'selective outline','shading':'medium shading','detail':'highly detailed','view':'high top-down','direction':direction,'isometric':True,'oblique_projection':False,'coverage_percentage':65,'init_image':encoded(guide),'init_image_strength':300,'style_image':encoded(context) if has_context else None}
-        request={'endpoint':self.config['pixellab_base_url'],'payload':payload}
+        payload={'description':prompt,'image_size':{'width':64,'height':64},'negative_description':'copy of reference character, same face, same hair, same clothes, background, shadow, text, blur, anti-aliasing, wrong pose, extra limbs','text_guidance_scale':10,'extra_guidance_scale':6 if has_context else 0,'style_strength':55 if has_context else 0,'no_background':True,'seed':0,'outline':'selective outline','shading':'medium shading','detail':'highly detailed','view':'high top-down','direction':direction,'isometric':True,'oblique_projection':False,'coverage_percentage':65}
+        # A Base deve seguir o contrato nativo text-to-sprite da PixelLab. Enviar
+        # o Golden como init_image fazia o modelo copiá-lo e o encaixe posterior
+        # destruía a resposta. Addons ainda recebem apenas o guia neutro da peça.
+        if component!='Base':
+            payload['init_image']=encoded(guide);payload['init_image_strength']=300
+        if has_context:payload['style_image']=encoded(context)
+        request={'cache_version':PIXELLAB_CACHE_VERSION,'endpoint':self.config['pixellab_base_url'],'payload':payload}
         h=hashlib.sha256(json.dumps(request,sort_keys=True).encode()).hexdigest();p=self.cache/(h+'.json')
         from_cache=p.exists()
         if from_cache:self.hits+=1;self.progress(f'PixelLab: sprite recuperado do cache ({self.hits})');result=json.loads(p.read_text())

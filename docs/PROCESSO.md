@@ -23,9 +23,15 @@ O Golden possui 128 poses, sete linhas e duas camadas: 1.792 quadros e 7.168 ref
 
 ## Criação por prompt
 
-Usa as silhuetas validadas do Golden como contrato geométrico. Em vez de gerar um FULL para depois tentar separá-lo, cria diretamente a Base e um addon por vez. Para cada componente, gera primeiro somente a pose principal Sul e exige aprovação humana antes de gastar chamadas com as poses restantes. Depois expande o design aprovado, reconforma o alpha à silhueta do guia e apresenta o componente completo para uma segunda revisão. Pose diagonal/isométrica, direção, escala e âncora não ficam a critério do modelo.
+Na Base PixelLab, o Forge mostra e salva os pixels 64×64 devolvidos pela API,
+sem girar, comprimir ou recortar o personagem para a silhueta Golden. A Base
+também não envia o Golden como `init_image`: a referência visual da esquerda é
+somente um guia para o usuário. Respostas antigas do cache, produzidas pelo
+pipeline que deformava a imagem, são automaticamente ignoradas por versão.
 
-Antes do envio à PixelLab, o guia perde todas as cores e detalhes Golden e vira apenas um volume neutro em cinza. A imagem inicial usa influência reduzida; na Base não há referência de estilo. O pós-processamento aceita um contorno novo dentro de uma margem estrutural de dois pixels, em vez de reimpor o alpha Golden pixel a pixel.
+Em vez de gerar um FULL para depois tentar separá-lo, cria diretamente a Base e um addon por vez. Para cada componente, gera primeiro somente a pose principal Sul e exige aprovação humana antes de gastar chamadas com as poses restantes. A resposta PixelLab é preservada pixel a pixel e validada contra conteúdo vazio ou fragmentado antes do checkpoint; o contrato geométrico legado continua restrito ao gerador de atlas/OpenAI.
+
+Nos addons PixelLab, o guia perde todas as cores e detalhes Golden e vira apenas um volume neutro em cinza. Na Base não há `init_image` nem referência de estilo. Assim, o resultado exibido é a imagem efetivamente devolvida pelo provedor, e não uma reconstrução local sobre o Golden.
 
 O modo padrão pausa também depois de cada resposta PixelLab, publica exatamente a pose recebida e espera aprovação antes da chamada seguinte. O usuário pode trocar para revisão por etapas ou execução automática. Checkpoints parciais podem ser baixados durante o job; a coluna esquerda continua mostrando apenas o guia estrutural, enquanto a direita mostra o resultado efetivamente gerado.
 

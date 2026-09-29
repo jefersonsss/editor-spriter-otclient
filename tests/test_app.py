@@ -57,7 +57,11 @@ class ProviderHandler(BaseHTTPRequestHandler):
             self.send({'status':'completed','output':[{'type':'message','content':[{'type':'output_text','text':json.dumps(answer)}]}],'usage':{'input_tokens':1,'output_tokens':1}})
         elif self.path=='/generate-image-bitforge':
             body=json.loads(raw);self.server.calls.append((self.path,body));assert body['image_size']=={'width':64,'height':64} and body['isometric'] and body['no_background']
-            self.send({'image':body['init_image'],'usage':{'type':'usd','usd':.01}})
+            generated=body.get('init_image')
+            if generated is None:
+                a=blank();a[16:52,25:40]=[70,90,120,255]
+                generated={'type':'base64','base64':base64.b64encode(png(a)).decode(),'format':'png'}
+            self.send({'image':generated,'usage':{'type':'usd','usd':.01}})
         elif self.path in ['/images/edits','/images/generations']:
             if self.path.endswith('edits'):
                 msg=BytesParser(policy=policy.default).parsebytes(('Content-Type: '+ctype+'\r\nMIME-Version: 1.0\r\n\r\n').encode()+raw);fields={};images=[]
@@ -174,6 +178,14 @@ class GuardTests(unittest.TestCase):
     def test_full_character_is_rejected_for_isolated_addon(self):
         guide=blank();guide[10:18,25:39]=[100,100,100,255]
         with self.assertRaisesRegex(ForgeError,'personagem completo'):conform_to_guide(synthetic().get((1,0,0,0)),guide,'Helmet')
+    def test_pixellab_base_is_preserved_pixel_for_pixel(self):
+        art=blank();art[12:49,23:42]=[18,72,131,255]
+        guide=synthetic().get((1,0,0,0))
+        self.assertTrue(np.array_equal(accept_pixellab_sprite(art,guide,'Base'),art))
+    def test_fragmented_pixellab_result_is_not_checkpointed(self):
+        art=blank()
+        for y,x in [(4,4),(12,50),(31,6),(55,55)]:art[y:y+3,x:x+3]=[255,255,255,255]
+        with self.assertRaisesRegex(ForgeError,'fragmentos'):accept_pixellab_sprite(art,synthetic().get((1,0,0,0)),'Base')
 
 class APITests(unittest.TestCase):
     def setUp(self):self.temp=tempfile.TemporaryDirectory();self.fake=FakeProvider().__enter__();self.stop=threading.Event();self.api=API({'base_url':self.fake.url},'test-key',self.temp.name,self.stop)
@@ -201,17 +213,26 @@ class APITests(unittest.TestCase):
         logs=[];api=PixelLabAPI({'pixellab_base_url':self.fake.url},['empty-credit','backup-key'],self.temp.name,self.stop,logs.append)
         guide=synthetic().get((1,0,0,0));out=api.sprite('cavaleiro',guide,blank(),'south')
         self.assertEqual(out.shape,(64,64,4));self.assertEqual(api.key_index,1)
-        calls=[c for c in self.fake.calls if c[0]=='/generate-image-bitforge'];self.assertEqual(len(calls),1);self.assertEqual(api.calls,2);self.assertEqual(calls[0][1]['init_image_strength'],300);self.assertEqual(calls[0][1]['style_strength'],0)
+        calls=[c for c in self.fake.calls if c[0]=='/generate-image-bitforge'];self.assertEqual(len(calls),1);self.assertEqual(api.calls,2);self.assertNotIn('init_image',calls[0][1]);self.assertEqual(calls[0][1]['style_strength'],0)
         self.assertTrue(any('debug seguro' in line and 'base64_bytes' in line and 'south' in line for line in logs));self.assertNotIn('iVBOR',json.dumps(logs))
     def test_pixellab_retries_transient_502(self):
         api=PixelLabAPI({'pixellab_base_url':self.fake.url},['flaky-key'],self.temp.name,self.stop)
         out=api.sprite('cavaleiro resiliente',synthetic().get((1,0,0,0)),blank(),'south')
         self.assertEqual(out.shape,(64,64,4));self.assertEqual(api.calls,2)
+    def test_pixellab_cache_version_invalidates_old_malformed_result(self):
+        api=PixelLabAPI({'pixellab_base_url':self.fake.url},['backup-key'],self.temp.name,self.stop)
+        guide=synthetic().get((1,0,0,0));api.sprite('novo guerreiro',guide,blank(),'south')
+        calls=len([c for c in self.fake.calls if c[0]=='/generate-image-bitforge'])
+        old_request={'endpoint':api.config['pixellab_base_url'],'payload':{'obsolete':True}}
+        old=(Path(self.temp.name)/(hashlib.sha256(json.dumps(old_request,sort_keys=True).encode()).hexdigest()+'.json'))
+        old.write_text(json.dumps({'image':{'base64':base64.b64encode(png(blank())).decode()}}))
+        api.sprite('outro guerreiro',guide,blank(),'south')
+        self.assertEqual(len([c for c in self.fake.calls if c[0]=='/generate-image-bitforge']),calls+1)
     def test_sequential_creation_emits_batch_checkpoints(self):
         class Failing:
             config={'background':'transparent'}
             def __init__(self):self.calls=0
-            def sprite(self,prompt,guide,context,direction):
+            def sprite(self,prompt,guide,context,direction,component='Base'):
                 self.calls+=1
                 if self.calls==10:raise ForgeError('falha simulada')
                 return guide.copy()
@@ -222,7 +243,7 @@ class APITests(unittest.TestCase):
         class Counting:
             config={'background':'transparent'}
             def __init__(self):self.calls=0
-            def sprite(self,prompt,guide,context,direction):self.calls+=1;return guide.copy()
+            def sprite(self,prompt,guide,context,direction,component='Base'):self.calls+=1;return guide.copy()
         api=Counting();groups={1:{'type':0,'frames':1,'z':1},2:{'type':1,'frames':1,'z':1}}
         with self.assertRaises(Cancelled):create_sequential('Cavaleiro para amostra',2007,groups,api,lambda *_:None,self.stop,approve=lambda *_:False)
         self.assertEqual(api.calls,1)
