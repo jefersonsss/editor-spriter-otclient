@@ -32,7 +32,9 @@ do cache de versões anteriores são automaticamente ignoradas.
 
 Em vez de gerar um FULL para depois tentar separá-lo, cria diretamente a Base e um addon por vez. Para cada componente, gera primeiro somente a pose principal Sul e exige aprovação humana antes de gastar chamadas com as poses restantes. A resposta PixelLab é validada contra conteúdo vazio ou fragmentado e ancorada por translação, sem escala ou rotação, antes do checkpoint; o contrato geométrico legado continua restrito ao gerador de atlas/OpenAI.
 
-Em todas as etapas PixelLab, o guia perde cores e detalhes Golden e vira apenas um volume neutro em cinza. Na Base sua influência estrutural é menor e não há referência de estilo; nos addons, o resultado aprovado fornece a identidade visual. Assim, o resultado exibido continua sendo a arte do provedor, apenas posicionada na âncora correta, e não uma reconstrução local sobre o Golden.
+Em todas as etapas PixelLab, o guia perde cores e detalhes Golden e vira apenas um volume neutro em cinza. Na Base não há referência de estilo e a cobertura solicitada é menor; nos addons, o resultado aprovado fornece a identidade visual. Assim, o resultado exibido continua sendo a arte do provedor, apenas posicionada na âncora correta, e não uma reconstrução local sobre o Golden.
+
+O prompt é filtrado por componente antes da chamada: instruções gerais e `BASE` alimentam somente a Base; as seções `HELMET`, `ARMOR`, `LEGS`, `BOOTS`, `SHIELD` e `WEAPON` são entregues apenas em suas respectivas etapas. Isso impede que uma espada, um escudo ou uma couraça descritos no prompt induzam a primeira chamada a produzir o personagem completo. A Base também usa menor cobertura do quadro e é recusada se exceder a área segura do manequim.
 
 O modo padrão pausa também depois de cada resposta PixelLab, publica exatamente a pose recebida e espera aprovação antes da chamada seguinte. O usuário pode trocar para revisão por etapas ou execução automática. Checkpoints parciais podem ser baixados durante o job; a coluna esquerda continua mostrando apenas o guia estrutural, enquanto a direita mostra o resultado efetivamente gerado.
 

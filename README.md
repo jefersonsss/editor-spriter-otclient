@@ -61,6 +61,8 @@ Em **Validação durante a criação**, escolha entre revisar cada resposta Pixe
 
 O guia Golden enviado na criação é neutralizado para tons de cinza sem rosto, roupa ou paleta reutilizáveis. Ele orienta a anatomia compacta, a câmera, a escala e a âncora inferior direita típica do quadro Tibia. A Base recebe influência estrutural baixa, pode criar contorno e identidade próprios e, ao retornar, é somente transladada para a âncora correta — nunca redimensionada, girada ou reconstruída sobre a Golden.
 
+Antes de chamar a PixelLab, o Forge separa do prompt somente as seções gerais e a seção do componente atual. Assim, descrições de Helmet, Armor, Weapon ou Shield não são enviadas durante a criação da Base. A Base usa cobertura reduzida e respostas grandes demais — indicação de personagem completo/equipado — são rejeitadas antes do checkpoint.
+
 Cada chamada PixelLab pede exatamente um sprite 64×64; ela não recebe as instruções de atlas 1024×1024 usadas pelo provedor OpenAI. Respostas que tragam um personagem inteiro no lugar de um addon isolado são rejeitadas antes de contaminar o projeto.
 
 O Forge também reconhece diretamente o ZIP de personagem exportado pela PixelLab (`export_version` 3.x). Ao importá-lo, usa as rotações nativas `north`, `east`, `south` e `west` como Base, conserva o identificador de origem apenas nos metadados locais e cria os slots modulares vazios para edição. As quatro diagonais continuam no ZIP original, mas não entram no perfil OTClient de quatro direções.

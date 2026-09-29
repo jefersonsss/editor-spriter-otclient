@@ -1,6 +1,6 @@
 from __future__ import annotations
 from pathlib import Path
-import sys,importlib.util,json,math,copy
+import sys,importlib.util,json,math,copy,re
 import numpy as np
 from scipy import ndimage as ndi
 from PIL import Image,ImageDraw
@@ -167,6 +167,8 @@ def accept_pixellab_sprite(art,guide,component):
     source_box=bbox(mask);target_box=bbox(guide[:,:,3]>0)
     if source_box is None or target_box is None:raise ForgeError(f'A PixelLab devolveu {component} sem âncora utilizável.')
     sx0,sy0,sx1,sy1=source_box;_tx0,_ty0,tx1,ty1=target_box
+    if component=='Base' and ((sx1-sx0)>(tx1-_tx0)+6 or (sy1-sy0)>(ty1-_ty0)+6):
+        raise ForgeError('A PixelLab devolveu uma Base grande demais ou um personagem já equipado. Rejeitado antes de salvar; gere uma nova amostra.')
     # O outfit 2x2 ancora o desenho no quadrante inferior direito. Movemos a
     # resposta inteira; não esticamos, giramos, recolorimos nem mudamos pixels.
     dx=tx1-sx1;dy=ty1-sy1
@@ -203,14 +205,29 @@ def approve_stage(result,y,approve):
 
 CREATE_ORDER=[0,1,2,3,4,6,5]  # Base, Helmet, Armor, Legs, Boots, Shield, Weapon.
 
+def component_design(prompt,name):
+    """Remove descrições dos outros addons antes de pedir o componente atual."""
+    aliases={'BASE':'Base','HELMET':'Helmet','CAPACETE':'Helmet','ARMOR':'Armor','ARMADURA':'Armor','COURAÇA':'Armor','LEGS':'Legs','PERNAS':'Legs','BOOTS':'Boots','BOTAS':'Boots','SHIELD':'Shield','ESCUDO':'Shield','WEAPON':'Weapon','ARMA':'Weapon'}
+    lines=prompt.splitlines();sections=[];current=None;shared=[]
+    for line in lines:
+        heading=re.sub(r'[^A-ZÁÉÍÓÚÇ ]','',line.strip().upper()).strip()
+        found=next((value for key,value in aliases.items() if heading==key or heading.startswith(key+' ')),None)
+        if found:current=found;sections.append((current,[]));continue
+        if current is None:shared.append(line)
+        else:sections[-1][1].append(line)
+    if not sections:return prompt.strip()
+    selected=next((body for section,body in sections if section==name),[])
+    return ('\n'.join(shared+selected)).strip()
+
 def pixellab_sprite_prompt(prompt,name,pose,direction):
     """Pedido de UMA imagem 64x64; não mistura o contrato de atlas da OpenAI."""
     component=('unarmored base character, body and simple underclothes only' if name=='Base' else f'isolated {name} equipment layer only')
     base_contract=('This is a classic Tibia/OTServ modular mannequin base: compact semi-chibi anatomy, oversized readable head, short torso, short limbs, '
                    'close-fitting plain undershirt and trousers made to be covered by separate armor layers; no armor, no equipment. ' if name=='Base' else '')
+    design=component_design(prompt,name)
     return (f'Create exactly one 64x64 transparent-background isometric RPG pixel-art sprite. '
             f'Component: {component}. Direction: {direction}. Animation frame: {pose[1]}. '
-            f'{base_contract}Character design: {prompt}. The grayscale init image is a geometry-only mannequin: follow its high top-down body proportions, facing, scale and lower-right anchor, '
+            f'{base_contract}Character design for this component only: {design}. The grayscale init image is a geometry-only mannequin: follow its high top-down body proportions, facing, scale and lower-right anchor, '
             'but never copy colors, face, hair or clothing design. Occupy the lower-right 32x32 tile area like the mannequin, not the center of the 64x64 canvas. '
             'Keep crisp 1-pixel details, a compact readable silhouette and no detached decorative particles. '
             'Draw only the requested component; every unrelated pixel must be transparent.')
