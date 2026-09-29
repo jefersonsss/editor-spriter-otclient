@@ -1,0 +1,69 @@
+{
+  "resultado": "APROVADO NOS TESTES OFFLINE",
+  "quadros_png_verificados": 1792,
+  "poses": 128,
+  "combinacoes_de_addons_por_pose": 64,
+  "composicoes_exercitadas": 8192,
+  "diferencas_recomposicao_golden_original": 0,
+  "sobreposicoes_entre_helmet_armor_legs_boots": 0,
+  "quadros_roundtrip_spr_dat_identicos": 1792,
+  "slots_faltantes": 0,
+  "referencias_dat": 7168,
+  "importacao_novo_looktype": {
+    "target_id": 1,
+    "images": 1792,
+    "new_sprites": 2142,
+    "groups": 2,
+    "missing_slots": 0,
+    "mode": "novo"
+  },
+  "substituicao_looktype": {
+    "target_id": 1,
+    "images": 1792,
+    "new_sprites": 2142,
+    "groups": 2,
+    "missing_slots": 0,
+    "mode": "substituído"
+  },
+  "metadados_animacao_existentes_preservados": true,
+  "pixels_opacos_por_peca": {
+    "Base": {
+      "minimo": 404,
+      "maximo": 505
+    },
+    "Helmet": {
+      "minimo": 130,
+      "maximo": 143
+    },
+    "Armor": {
+      "minimo": 222,
+      "maximo": 284
+    },
+    "Legs": {
+      "minimo": 7,
+      "maximo": 60
+    },
+    "Boots": {
+      "minimo": 52,
+      "maximo": 116
+    },
+    "Weapon": {
+      "minimo": 57,
+      "maximo": 63
+    },
+    "Shield": {
+      "minimo": 52,
+      "maximo": 66
+    }
+  },
+  "limites": "Teste executado nas classes do editor anexado. Não foi executado dentro do cliente OTCv8 ou servidor do usuário. Os DAT/SPR de teste usam cabeçalho sintético e não são arquivos para substituir o cliente.",
+  "quadros_recompostos_de_sprites_individuais": 1792,
+  "sprites_locais_nao_vazios": 1023,
+  "reproducao_independente_do_codigo": 1792,
+  "previa_interativa": {
+    "poses_com_igualdade_entre_canvas": 128,
+    "controles": "OK",
+    "animacao": "OK",
+    "ambiente": "JavaScript com DOM simulado e canvas nativo; navegador não disponível para teste visual da página"
+  }
+}
