@@ -57,7 +57,7 @@ class ProviderHandler(BaseHTTPRequestHandler):
             self.send({'status':'completed','output':[{'type':'message','content':[{'type':'output_text','text':json.dumps(answer)}]}],'usage':{'input_tokens':1,'output_tokens':1}})
         elif self.path=='/generate-image-bitforge':
             body=json.loads(raw);self.server.calls.append((self.path,body));assert body['image_size']=={'width':64,'height':64} and body['isometric'] and body['no_background']
-            self.send({'image':{'type':'base64','base64':base64.b64encode(png(synthetic().get((1,0,0,0)))).decode(),'format':'png'},'usage':{'type':'usd','usd':.01}})
+            self.send({'image':body['init_image'],'usage':{'type':'usd','usd':.01}})
         elif self.path in ['/images/edits','/images/generations']:
             if self.path.endswith('edits'):
                 msg=BytesParser(policy=policy.default).parsebytes(('Content-Type: '+ctype+'\r\nMIME-Version: 1.0\r\n\r\n').encode()+raw);fields={};images=[]
@@ -150,6 +150,13 @@ class GuardTests(unittest.TestCase):
     def test_opaque_generated_background_rejected(self):
         a=np.full((1024,1024,4),255,dtype=np.uint8)
         with self.assertRaises(ForgeError):split_generated(a,16,cols=4)
+    def test_neutral_guide_removes_golden_appearance(self):
+        source=synthetic().get((1,0,0,0));neutral=neutral_guide(source);visible=neutral[:,:,3]>0
+        self.assertTrue(np.array_equal(visible,source[:,:,3]>0));self.assertTrue(np.all(neutral[:,:,0]==neutral[:,:,1]));self.assertTrue(np.all(neutral[:,:,1]==neutral[:,:,2]));self.assertFalse(np.array_equal(neutral,source))
+    def test_conform_allows_new_contour_inside_safe_margin(self):
+        guide=blank();guide[20:50,25:40]=[80,80,80,255];art=blank();art[15:55,29:36]=[20,180,220,255]
+        out=conform_to_guide(art,guide);allowed=ndi.binary_dilation(guide[:,:,3]>0,iterations=2)
+        self.assertTrue(np.all((out[:,:,3]>0)<=allowed));self.assertFalse(np.array_equal(out[:,:,3]>0,guide[:,:,3]>0))
 
 class APITests(unittest.TestCase):
     def setUp(self):self.temp=tempfile.TemporaryDirectory();self.fake=FakeProvider().__enter__();self.stop=threading.Event();self.api=API({'base_url':self.fake.url},'test-key',self.temp.name,self.stop)
@@ -177,7 +184,7 @@ class APITests(unittest.TestCase):
         api=PixelLabAPI({'pixellab_base_url':self.fake.url},['empty-credit','backup-key'],self.temp.name,self.stop)
         guide=synthetic().get((1,0,0,0));out=api.sprite('cavaleiro',guide,blank(),'south')
         self.assertEqual(out.shape,(64,64,4));self.assertEqual(api.key_index,1)
-        calls=[c for c in self.fake.calls if c[0]=='/generate-image-bitforge'];self.assertEqual(len(calls),1);self.assertEqual(api.calls,2)
+        calls=[c for c in self.fake.calls if c[0]=='/generate-image-bitforge'];self.assertEqual(len(calls),1);self.assertEqual(api.calls,2);self.assertEqual(calls[0][1]['init_image_strength'],300);self.assertEqual(calls[0][1]['style_strength'],0)
     def test_pixellab_retries_transient_502(self):
         api=PixelLabAPI({'pixellab_base_url':self.fake.url},['flaky-key'],self.temp.name,self.stop)
         out=api.sprite('cavaleiro resiliente',synthetic().get((1,0,0,0)),blank(),'south')
@@ -253,11 +260,14 @@ class ServerTests(unittest.TestCase):
             self.j('/api/config',{'key':'test-key','base_url':fake.url});self.j('/api/create',{'prompt':'Cavaleiro de bronze com arma e escudo','look':2003,'idle':1,'walk':1,'z':1});self.wait();s=self.j('/api/state');self.assertTrue(s['validation']['ok']);self.assertEqual(s['result']['look'],2003)
             self.assertEqual(list(s['result']['metadata']['stage_approvals']),['Base','Helmet','Armor','Legs','Boots','Shield','Weapon'])
             self.assertTrue(all(v['approved_by']=='user' for v in s['result']['metadata']['stage_approvals'].values()))
-            # A IA fornece o desenho, mas nunca pode trocar pose, direção ou âncora.
+            # A IA fornece desenho e contorno próprios dentro da margem segura da
+            # pose; exigir o alpha Golden exato faria a criação apenas copiá-lo.
             out=self.server.state.result;guide=reference()
             for p in out.poses():
                 gp=(min(p[0],max(guide.groups)),p[1]%8,p[2],p[3]%2)
-                for y in range(7):self.assertTrue(np.array_equal(out.get(p,y)[:,:,3]>0,guide.get(gp,y)[:,:,3]>0),(p,y))
+                for y in range(7):
+                    generated=out.get(p,y)[:,:,3]>0;allowed=ndi.binary_dilation(guide.get(gp,y)[:,:,3]>0,iterations=2)
+                    self.assertTrue(generated.any(),(p,y));self.assertFalse(np.any(generated & ~allowed),(p,y))
     def test_create_with_pixellab_provider(self):
         with FakeProvider() as fake:
             self.j('/api/config',{'provider':'pixellab','pixellab_base_url':fake.url,'pixellab_keys':'empty-credit\nbackup-key','max_calls':200})

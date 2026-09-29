@@ -122,7 +122,7 @@ def align_new(art,target):
     return binary(out)
 
 def conform_to_guide(art,guide):
-    """Transfere a arte para a silhueta validada sem alterar pose ou orientação."""
+    """Encaixa arte nova na área validada sem copiar o contorno pixel a pixel."""
     target=guide[:,:,3]>0
     source=art[:,:,3]>0
     def axis(mask):
@@ -136,11 +136,18 @@ def conform_to_guide(art,guide):
     rotated=rgba(Image.fromarray(art).rotate(delta,Image.Resampling.NEAREST,expand=True))
     fitted=align_new(rotated,target);visible=fitted[:,:,3]>0
     if not visible.any() or not target.any():raise ForgeError('A geração não contém arte utilizável para a pose validada.')
-    # Preenche toda a silhueta com a cor do pixel gerado mais próximo. A geometria,
-    # direção e âncora vêm exclusivamente do sprite compatível usado como guia.
-    _,indices=ndi.distance_transform_edt(~visible,return_indices=True)
-    out=blank();ys,xs=np.where(target);sy=indices[0][ys,xs];sx=indices[1][ys,xs]
-    out[ys,xs,:3]=fitted[sy,sx,:3];out[ys,xs,3]=255
+    # Permite um contorno novo dentro de uma margem estrutural segura. A versão
+    # anterior preenchia exatamente o alpha Golden e apagava o design novo.
+    allowed=ndi.binary_dilation(target,iterations=2);out=fitted.copy();out[~allowed]=0
+    if np.count_nonzero(out[:,:,3])<8:raise ForgeError('A arte nova não se encaixou na área estrutural da pose.')
+    return binary(out)
+
+def neutral_guide(guide):
+    """Remove cores/rosto/roupa Golden, mantendo somente volume e pose."""
+    mask=guide[:,:,3]>0;out=blank()
+    if not mask.any():return out
+    depth=ndi.distance_transform_edt(mask);shade=np.clip(82+depth*12,82,154).astype(np.uint8)
+    out[mask,:3]=np.stack([shade[mask]]*3,axis=1);out[mask,3]=255
     return out
 
 def slot_fingerprint(result,ys):
@@ -200,7 +207,7 @@ def create_sequential(prompt,look,groups,api,progress,stop,approve=None,checkpoi
                 def compatible_prompt(p):return request_prefix+pose_descriptions(next(batch for batch in original_batches if p in batch))
                 generated_parts=[]
                 for p,g,c in zip(pp,pose_guides,context):
-                    new=api.sprite(compatible_prompt(p),g,c,directions[p[2]])
+                    new=api.sprite(compatible_prompt(p),neutral_guide(g),c,directions[p[2]])
                     result.slots[(*p,y,0)]=conform_to_guide(new,g);completed+=1
                     if checkpoint:checkpoint(name,result.copy(),completed,len(ordered))
                     if batch_index or len(pp)>1:

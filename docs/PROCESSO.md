@@ -25,6 +25,8 @@ O Golden possui 128 poses, sete linhas e duas camadas: 1.792 quadros e 7.168 ref
 
 Usa as silhuetas validadas do Golden como contrato geométrico. Em vez de gerar um FULL para depois tentar separá-lo, cria diretamente a Base e um addon por vez. Para cada componente, gera primeiro somente a pose principal Sul e exige aprovação humana antes de gastar chamadas com as poses restantes. Depois expande o design aprovado, reconforma o alpha à silhueta do guia e apresenta o componente completo para uma segunda revisão. Pose diagonal/isométrica, direção, escala e âncora não ficam a critério do modelo.
 
+Antes do envio à PixelLab, o guia perde todas as cores e detalhes Golden e vira apenas um volume neutro em cinza. A imagem inicial usa influência reduzida; na Base não há referência de estilo. O pós-processamento aceita um contorno novo dentro de uma margem estrutural de dois pixels, em vez de reimpor o alpha Golden pixel a pixel.
+
 O modo padrão pausa também depois de cada resposta PixelLab, publica exatamente a pose recebida e espera aprovação antes da chamada seguinte. O usuário pode trocar para revisão por etapas ou execução automática. Checkpoints parciais podem ser baixados durante o job; a coluna esquerda continua mostrando apenas o guia estrutural, enquanto a direita mostra o resultado efetivamente gerado.
 
 A grade rígida é uma exigência enviada à API, não uma garantia matemática de que o modelo desenhará corretamente. Formato/dimensões são verificados; anatomia, coerência de animação, segmentação e detalhes artísticos exigem inspeção das prévias. O aplicativo permite editar PNGs nativos sem alterar outros frames.

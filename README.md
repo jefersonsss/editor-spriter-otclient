@@ -59,6 +59,8 @@ Antes de expandir cada componente, o Forge gera somente a pose principal Sul e p
 
 Em **Validação durante a criação**, escolha entre revisar cada resposta PixelLab (padrão), revisar apenas a amostra e o componente completo, ou gerar automaticamente sem pausas. O botão **Baixar checkpoint** permanece disponível durante a tarefa e baixa o estado parcial para reabertura no Forge; esse checkpoint incompleto não é o ZIP final para importar no Studio.
 
+O guia Golden enviado na criação é neutralizado para tons de cinza sem rosto, roupa ou paleta reutilizáveis. Ele define somente pose e volume aproximado. A PixelLab recebe influência estrutural reduzida e o resultado pode criar um contorno próprio dentro de uma margem segura, evitando que a Base nova seja uma cópia ou simples recoloração da Golden.
+
 Se a tela ainda mostrar apenas “Chave da API” e `v1.0`, você está executando uma cópia ou `.exe` anterior. Feche o processo antigo e inicie esta pasta novamente; para executável Windows, gere um novo build com `GERAR_EXE_WINDOWS.bat`. A versão correta mostra `v1.1.0-pixellab` no cabeçalho e o destaque **PixelLab API disponível** em Configuração.
 
 **Codex não é uma API de geração de imagens.** O Forge não lê nem reutiliza tokens privados do login do Codex/ChatGPT. A opção informativa explica essa limitação em vez de simular uma integração insegura; escolha OpenAI API ou PixelLab para gerar imagens.
