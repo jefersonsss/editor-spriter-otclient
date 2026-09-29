@@ -157,6 +157,13 @@ class GuardTests(unittest.TestCase):
         guide=blank();guide[20:50,25:40]=[80,80,80,255];art=blank();art[15:55,29:36]=[20,180,220,255]
         out=conform_to_guide(art,guide);allowed=ndi.binary_dilation(guide[:,:,3]>0,iterations=2)
         self.assertTrue(np.all((out[:,:,3]>0)<=allowed));self.assertFalse(np.array_equal(out[:,:,3]>0,guide[:,:,3]>0))
+    def test_pixellab_prompt_requests_one_sprite_not_an_atlas(self):
+        prompt=pixellab_sprite_prompt('guerreiro original','Base',(1,0,2,0),'south')
+        self.assertIn('exactly one 64x64',prompt);self.assertIn('unarmored base',prompt)
+        self.assertNotIn('1024x1024',prompt);self.assertNotIn('4 columns',prompt);self.assertNotIn('CELLS',prompt)
+    def test_full_character_is_rejected_for_isolated_addon(self):
+        guide=blank();guide[10:18,25:39]=[100,100,100,255]
+        with self.assertRaisesRegex(ForgeError,'personagem completo'):conform_to_guide(synthetic().get((1,0,0,0)),guide,'Helmet')
 
 class APITests(unittest.TestCase):
     def setUp(self):self.temp=tempfile.TemporaryDirectory();self.fake=FakeProvider().__enter__();self.stop=threading.Event();self.api=API({'base_url':self.fake.url},'test-key',self.temp.name,self.stop)

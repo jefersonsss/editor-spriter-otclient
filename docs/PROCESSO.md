@@ -29,6 +29,8 @@ Antes do envio à PixelLab, o guia perde todas as cores e detalhes Golden e vira
 
 O modo padrão pausa também depois de cada resposta PixelLab, publica exatamente a pose recebida e espera aprovação antes da chamada seguinte. O usuário pode trocar para revisão por etapas ou execução automática. Checkpoints parciais podem ser baixados durante o job; a coluna esquerda continua mostrando apenas o guia estrutural, enquanto a direita mostra o resultado efetivamente gerado.
 
+Na integração PixelLab, cada chamada recebe um pedido próprio para exatamente um sprite 64×64. O contrato de atlas 1024×1024 usado pela OpenAI não é enviado à PixelLab. Se a API devolver um personagem inteiro quando foi solicitado somente um addon, o resultado é rejeitado antes de entrar no projeto, em vez de ser reduzido até virar pixels desconexos.
+
 A grade rígida é uma exigência enviada à API, não uma garantia matemática de que o modelo desenhará corretamente. Formato/dimensões são verificados; anatomia, coerência de animação, segmentação e detalhes artísticos exigem inspeção das prévias. O aplicativo permite editar PNGs nativos sem alterar outros frames.
 
 ## Saída

@@ -61,6 +61,8 @@ Em **Validação durante a criação**, escolha entre revisar cada resposta Pixe
 
 O guia Golden enviado na criação é neutralizado para tons de cinza sem rosto, roupa ou paleta reutilizáveis. Ele define somente pose e volume aproximado. A PixelLab recebe influência estrutural reduzida e o resultado pode criar um contorno próprio dentro de uma margem segura, evitando que a Base nova seja uma cópia ou simples recoloração da Golden.
 
+Cada chamada PixelLab pede exatamente um sprite 64×64; ela não recebe as instruções de atlas 1024×1024 usadas pelo provedor OpenAI. Respostas que tragam um personagem inteiro no lugar de um addon isolado são rejeitadas antes de contaminar o projeto.
+
 Se a tela ainda mostrar apenas “Chave da API” e `v1.0`, você está executando uma cópia ou `.exe` anterior. Feche o processo antigo e inicie esta pasta novamente; para executável Windows, gere um novo build com `GERAR_EXE_WINDOWS.bat`. A versão correta mostra `v1.1.0-pixellab` no cabeçalho e o destaque **PixelLab API disponível** em Configuração.
 
 **Codex não é uma API de geração de imagens.** O Forge não lê nem reutiliza tokens privados do login do Codex/ChatGPT. A opção informativa explica essa limitação em vez de simular uma integração insegura; escolha OpenAI API ou PixelLab para gerar imagens.

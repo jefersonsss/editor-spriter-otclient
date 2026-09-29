@@ -121,20 +121,27 @@ def align_new(art,target):
     x=tx0+(tx1-tx0-w)//2;y=ty1-h;out=blank();out[y:y+h,x:x+w]=tile
     return binary(out)
 
-def conform_to_guide(art,guide):
+def conform_to_guide(art,guide,component=None,preserve_direction=False):
     """Encaixa arte nova na área validada sem copiar o contorno pixel a pixel."""
     target=guide[:,:,3]>0
     source=art[:,:,3]>0
-    def axis(mask):
-        ys,xs=np.where(mask)
-        if len(xs)<2:return 0.0
-        values,vectors=np.linalg.eigh(np.cov(np.stack([xs,ys])))
-        v=vectors[:,int(np.argmax(values))];return math.atan2(v[1],v[0])
-    # O modelo tende a devolver personagens verticais. Gira primeiro a textura
-    # para o eixo isométrico do guia e só então ajusta tamanho/âncora.
-    delta=math.degrees((axis(target)-axis(source)+math.pi/2)%math.pi-math.pi/2)
-    rotated=rgba(Image.fromarray(art).rotate(delta,Image.Resampling.NEAREST,expand=True))
-    fitted=align_new(rotated,target);visible=fitted[:,:,3]>0
+    if component and component!='Base' and source.sum()>target.sum()*3.5:
+        raise ForgeError(f'A PixelLab devolveu um personagem completo ao criar {component}. Rejeitado antes de salvar; tente novamente com outro seed ou provedor.')
+    if preserve_direction:
+        # A PixelLab já recebeu uma direção explícita. Inferir rotação por PCA
+        # fazia braços, armas e poses assimétricas parecerem deitados.
+        fitted=align_new(art,target)
+    else:
+        # O gerador de atlas pode devolver conteúdo vertical e ainda precisa do
+        # ajuste legado antes do encaixe (não altera a fonte original).
+        def axis(mask):
+            ys,xs=np.where(mask)
+            if len(xs)<2:return 0.0
+            values,vectors=np.linalg.eigh(np.cov(np.stack([xs,ys])))
+            v=vectors[:,int(np.argmax(values))];return math.atan2(v[1],v[0])
+        delta=math.degrees((axis(target)-axis(source)+math.pi/2)%math.pi-math.pi/2)
+        fitted=align_new(rgba(Image.fromarray(art).rotate(delta,Image.Resampling.NEAREST,expand=True)),target)
+    visible=fitted[:,:,3]>0
     if not visible.any() or not target.any():raise ForgeError('A geração não contém arte utilizável para a pose validada.')
     # Permite um contorno novo dentro de uma margem estrutural segura. A versão
     # anterior preenchia exatamente o alpha Golden e apagava o design novo.
@@ -167,6 +174,15 @@ def approve_stage(result,y,approve):
 
 CREATE_ORDER=[0,1,2,3,4,6,5]  # Base, Helmet, Armor, Legs, Boots, Shield, Weapon.
 
+def pixellab_sprite_prompt(prompt,name,pose,direction):
+    """Pedido de UMA imagem 64x64; não mistura o contrato de atlas da OpenAI."""
+    component=('unarmored base character, body and simple underclothes only' if name=='Base' else f'isolated {name} equipment layer only')
+    return (f'Create exactly one 64x64 transparent-background isometric RPG pixel-art sprite. '
+            f'Component: {component}. Direction: {direction}. Animation frame: {pose[1]}. '
+            f'Character design: {prompt}. Use the grayscale init image only for approximate pose, scale and bottom anchor; '
+            'do not copy its character design. Keep crisp 1-pixel details, a compact readable silhouette and no detached decorative particles. '
+            'Draw only the requested component; every unrelated pixel must be transparent.')
+
 def creation_guide(look,groups):
     """Fonte visual neutra da criação; nunca é substituída pelo resultado parcial."""
     ref=reference();out=Outfit(look,copy.deepcopy(groups))
@@ -187,7 +203,6 @@ def create_sequential(prompt,look,groups,api,progress,stop,approve=None,checkpoi
         # A primeira chamada cria somente a pose Sul principal. O usuário valida
         # o design antes de autorizar o custo das demais poses do componente.
         ordered=sorted(result.poses(),key=lambda p:(p[0],p[3],p[1],p[2]))
-        original_batches=[ordered[i:i+16] for i in range(0,len(ordered),16)]
         sample=next((p for p in ordered if p[0]==min(result.groups) and p[1]==0 and p[2]==2 and p[3]==0),ordered[0])
         remaining=[p for p in ordered if p!=sample]
         batches=[[sample]]+[remaining[i:i+16] for i in range(0,len(remaining),16)];completed=0
@@ -202,13 +217,11 @@ def create_sequential(prompt,look,groups,api,progress,stop,approve=None,checkpoi
                  'Frames are animation phases, NEVER camera rotation. Preserve exactly the same character identity, palette and materials shown in the locked context. Never redraw or modify locked components; every unrelated pixel must be transparent.\nCELLS: ')
             if hasattr(api,'sprite'):
                 directions=['north','east','south','west']
-                # Mantém a descrição usada pelas versões anteriores para que uma
-                # retomada aproveite sprites PixelLab já pagos e gravados no cache.
-                def compatible_prompt(p):return request_prefix+pose_descriptions(next(batch for batch in original_batches if p in batch))
                 generated_parts=[]
                 for p,g,c in zip(pp,pose_guides,context):
-                    new=api.sprite(compatible_prompt(p),neutral_guide(g),c,directions[p[2]])
-                    result.slots[(*p,y,0)]=conform_to_guide(new,g);completed+=1
+                    direction=directions[p[2]]
+                    new=api.sprite(pixellab_sprite_prompt(prompt,name,p,direction),neutral_guide(g),c,direction)
+                    result.slots[(*p,y,0)]=conform_to_guide(new,g,name,preserve_direction=True);completed+=1
                     if checkpoint:checkpoint(name,result.copy(),completed,len(ordered))
                     if batch_index or len(pp)>1:
                         if approve_pose and approve_pose(name,result.copy(),p,completed,len(ordered)) is False:raise Cancelled(f'{name} {pose_id(p)} rejeitado pelo usuário.')
