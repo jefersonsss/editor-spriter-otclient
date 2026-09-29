@@ -9,7 +9,7 @@ import unittest,tempfile,threading,base64,json,io,zipfile,csv,time,os,sys
 import numpy as np
 from PIL import Image
 from ni_forge.core import *
-from ni_forge.ai import API,ANALYSIS_SCHEMA,QC_SCHEMA
+from ni_forge.ai import API,PixelLabAPI,ANALYSIS_SCHEMA
 from ni_forge.workflows import *
 from ni_forge.server import create_server
 
@@ -31,13 +31,16 @@ class ProviderHandler(BaseHTTPRequestHandler):
     def send(self,obj,code=200):
         data=json.dumps(obj).encode();self.send_response(code);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(data)));self.end_headers();self.wfile.write(data)
     def do_GET(self):
-        self.server.calls.append((self.path,None));self.send({'data':[{'id':'gpt-4.1'},{'id':'gpt-image-1.5'}]})
+        self.server.calls.append((self.path,None));self.send({'type':'usd','usd':10} if self.path=='/balance' else {'data':[{'id':'gpt-4.1'},{'id':'gpt-image-1.5'}]})
     def do_POST(self):
         raw=self.rfile.read(int(self.headers['Content-Length']));ctype=self.headers['Content-Type']
-        assert self.headers['Authorization']=='Bearer test-key'
+        auth=self.headers['Authorization']
+        if auth=='Bearer empty-credit':self.send({'detail':'Insufficient credits'},402);return
+        if auth=='Bearer flaky-key' and not getattr(self.server,'flaky_failed',False):self.server.flaky_failed=True;self.send({'detail':'Inference stream ended without producing a result.'},502);return
+        assert auth in ['Bearer test-key','Bearer backup-key','Bearer flaky-key']
         if self.path=='/responses':
             body=json.loads(raw);self.server.calls.append((self.path,body));fmt=body['text']['format'];assert fmt['strict'] and fmt['type']=='json_schema'
-            if fmt['name']=='outfit_review':answer={'base_clean':True,'pieces_fit':True,'directions_coherent':True,'needs_revision':False,'notes':['Fixture HTTP; não é análise artística real.']}
+            if fmt['name']=='stage_review':answer={'approved':True,'identity_preserved':True,'fit_coherent':True,'directions_coherent':True,'notes':['Fixture HTTP; não é análise artística real.']}
             else:
                 content=body['input'][0]['content'];prompt=content[0]['text'];poses=json.loads(prompt.split('POSES: ',1)[1]);board=decode_png(base64.b64decode(content[1]['image_url'].split(',')[1]));plans=[]
                 for i,p in enumerate(poses):
@@ -52,6 +55,9 @@ class ProviderHandler(BaseHTTPRequestHandler):
                     plans.append({'id':p['id'],'confidence':.99,'complete':not missing,'description':'Fixture geométrica','regions':regions,'isolated_addons':[],'missing_pieces':missing,'attachment_boxes':boxes,'notes':''})
                 answer={'poses':plans}
             self.send({'status':'completed','output':[{'type':'message','content':[{'type':'output_text','text':json.dumps(answer)}]}],'usage':{'input_tokens':1,'output_tokens':1}})
+        elif self.path=='/generate-image-bitforge':
+            body=json.loads(raw);self.server.calls.append((self.path,body));assert body['image_size']=={'width':64,'height':64} and body['isometric'] and body['no_background']
+            self.send({'image':body['init_image'],'usage':{'type':'usd','usd':.01}})
         elif self.path in ['/images/edits','/images/generations']:
             if self.path.endswith('edits'):
                 msg=BytesParser(policy=policy.default).parsebytes(('Content-Type: '+ctype+'\r\nMIME-Version: 1.0\r\n\r\n').encode()+raw);fields={};images=[]
@@ -144,6 +150,13 @@ class GuardTests(unittest.TestCase):
     def test_opaque_generated_background_rejected(self):
         a=np.full((1024,1024,4),255,dtype=np.uint8)
         with self.assertRaises(ForgeError):split_generated(a,16,cols=4)
+    def test_neutral_guide_removes_golden_appearance(self):
+        source=synthetic().get((1,0,0,0));neutral=neutral_guide(source);visible=neutral[:,:,3]>0
+        self.assertTrue(np.array_equal(visible,source[:,:,3]>0));self.assertTrue(np.all(neutral[:,:,0]==neutral[:,:,1]));self.assertTrue(np.all(neutral[:,:,1]==neutral[:,:,2]));self.assertFalse(np.array_equal(neutral,source))
+    def test_conform_allows_new_contour_inside_safe_margin(self):
+        guide=blank();guide[20:50,25:40]=[80,80,80,255];art=blank();art[15:55,29:36]=[20,180,220,255]
+        out=conform_to_guide(art,guide);allowed=ndi.binary_dilation(guide[:,:,3]>0,iterations=2)
+        self.assertTrue(np.all((out[:,:,3]>0)<=allowed));self.assertFalse(np.array_equal(out[:,:,3]>0,guide[:,:,3]>0))
 
 class APITests(unittest.TestCase):
     def setUp(self):self.temp=tempfile.TemporaryDirectory();self.fake=FakeProvider().__enter__();self.stop=threading.Event();self.api=API({'base_url':self.fake.url},'test-key',self.temp.name,self.stop)
@@ -151,6 +164,8 @@ class APITests(unittest.TestCase):
     def test_models(self):self.assertIn('gpt-image-1.5',self.api.models())
     def test_convert_actual_http_contract_and_cache(self):
         source=synthetic();out=convert_ai(source,self.api,lambda *_:None,self.stop);self.assertTrue(validate(out)['ok']);self.assertEqual(len(out.slots),56);calls=len(self.fake.calls)
+        self.assertEqual(list(out.metadata['stage_approvals']),['Base','Helmet','Armor','Legs','Boots','Shield','Weapon'])
+        self.assertEqual(out.metadata['composition'],'python_rgba_base_then_y1_to_y6')
         cached=convert_ai(source,self.api,lambda *_:None,self.stop);self.assertEqual(len(self.fake.calls),calls);self.assertGreater(self.api.hits,0)
         for p in source.poses():
             original=source.full(p)
@@ -165,6 +180,34 @@ class APITests(unittest.TestCase):
         self.assertEqual(len(source.slots),16);out=convert_ai(source,self.api,lambda *_:None,self.stop);self.assertTrue(validate(out)['ok']);self.assertEqual(len(out.slots),112)
     def test_images_multiple_reference_and_generation(self):
         a=atlas16([synthetic().get((1,0,0,0))]*16);self.api.image('duas referencias',[a,a]);self.assertEqual(self.fake.calls[-1][1]['image_count'],2);self.api.image('imagem sem referencia');self.assertEqual(self.fake.calls[-1][0],'/images/generations')
+    def test_pixellab_contract_and_key_rotation(self):
+        api=PixelLabAPI({'pixellab_base_url':self.fake.url},['empty-credit','backup-key'],self.temp.name,self.stop)
+        guide=synthetic().get((1,0,0,0));out=api.sprite('cavaleiro',guide,blank(),'south')
+        self.assertEqual(out.shape,(64,64,4));self.assertEqual(api.key_index,1)
+        calls=[c for c in self.fake.calls if c[0]=='/generate-image-bitforge'];self.assertEqual(len(calls),1);self.assertEqual(api.calls,2);self.assertEqual(calls[0][1]['init_image_strength'],300);self.assertEqual(calls[0][1]['style_strength'],0)
+    def test_pixellab_retries_transient_502(self):
+        api=PixelLabAPI({'pixellab_base_url':self.fake.url},['flaky-key'],self.temp.name,self.stop)
+        out=api.sprite('cavaleiro resiliente',synthetic().get((1,0,0,0)),blank(),'south')
+        self.assertEqual(out.shape,(64,64,4));self.assertEqual(api.calls,2)
+    def test_sequential_creation_emits_batch_checkpoints(self):
+        class Failing:
+            config={'background':'transparent'}
+            def __init__(self):self.calls=0
+            def sprite(self,prompt,guide,context,direction):
+                self.calls+=1
+                if self.calls==10:raise ForgeError('falha simulada')
+                return guide.copy()
+        groups={1:{'type':0,'frames':1,'z':1},2:{'type':1,'frames':1,'z':1}};saved=[]
+        with self.assertRaises(ForgeError):create_sequential('Cavaleiro consistente',2006,groups,Failing(),lambda *_:None,self.stop,checkpoint=lambda name,out,done,total:saved.append((name,done,total,out)))
+        self.assertEqual(saved[0][:3],('Base',1,8));self.assertTrue(saved[0][3].get((1,0,2,0),0)[:,:,3].any())
+    def test_rejected_sample_stops_after_first_paid_sprite(self):
+        class Counting:
+            config={'background':'transparent'}
+            def __init__(self):self.calls=0
+            def sprite(self,prompt,guide,context,direction):self.calls+=1;return guide.copy()
+        api=Counting();groups={1:{'type':0,'frames':1,'z':1},2:{'type':1,'frames':1,'z':1}}
+        with self.assertRaises(Cancelled):create_sequential('Cavaleiro para amostra',2007,groups,api,lambda *_:None,self.stop,approve=lambda *_:False)
+        self.assertEqual(api.calls,1)
     def test_cancel(self):
         self.stop.set()
         with self.assertRaises(Cancelled):self.api.models()
@@ -184,12 +227,17 @@ class ServerTests(unittest.TestCase):
         with urlopen(Request(self.base+path,data=None if data is None else json.dumps(data).encode(),headers=h),timeout=30) as r:return r.read(),r.headers
     def j(self,path,data=None):return json.loads(self.request(path,data)[0])
     def wait(self):
-        self.server.state.worker.join(30);self.assertFalse(self.server.state.worker.is_alive());j=self.j('/api/job');self.assertEqual(j['status'],'done',j)
+        limit=time.time()+30
+        while self.server.state.worker.is_alive() and time.time()<limit:
+            if self.j('/api/job')['status']=='awaiting_approval':self.j('/api/approve_stage',{'approved':True})
+            time.sleep(.05)
+        self.server.state.worker.join(1);self.assertFalse(self.server.state.worker.is_alive());j=self.j('/api/job');self.assertEqual(j['status'],'done',j)
     def test_auth_and_html(self):
         with self.assertRaises(HTTPError) as e:self.request('/api/state',auth=False)
         self.assertEqual(e.exception.code,403)
         with self.assertRaises(HTTPError):self.request('/api/state',headers={'Origin':'https://elsewhere.invalid'})
-        raw,h=self.request('/');self.assertIn(self.server.state.token.encode(),raw);self.assertIn(b'/static/app.js',raw);self.assertIn("frame-ancestors 'none'",h['Content-Security-Policy'])
+        raw,h=self.request('/');self.assertIn(self.server.state.token.encode(),raw);self.assertIn(b'/static/app.js?v=1.1.0-pixellab',raw);self.assertIn(b'PixelLab API dispon',raw);self.assertIn("frame-ancestors 'none'",h['Content-Security-Policy'])
+        self.assertEqual(self.j('/api/state')['version'],'1.1.0-pixellab')
     def test_offline_job_export_edit_undo_reopen(self):
         self.j('/api/golden',{'look':2400});self.wait();s=self.j('/api/state');self.assertEqual(s['result']['look'],2400);self.assertTrue(s['validation']['ok']);project=s['project'];p=s['result']['poses'][0]
         image=self.request('/api/image?'+urlencode({'pose':p,'y':1}))[0];a=decode_png(image);loc=np.argwhere(a[:,:,3]>0)[0];a[loc[0],loc[1]]=[123,45,67,255]
@@ -197,14 +245,47 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(image,self.request('/api/image?'+urlencode({'pose':p,'y':1}))[0]);raw,headers=self.request('/api/export');out=read_package(raw);self.assertEqual(out.look,2400);self.assertTrue(out.modular());self.assertIn('2400',headers['Content-Disposition'])
         self.j('/api/example',{'name':'1457'});self.j('/api/open_project',{'id':project});self.assertEqual(self.j('/api/state')['result']['look'],2400)
     def test_config_secret_not_saved(self):
-        self.j('/api/config',{'key':'test-secret'});self.assertNotIn('test-secret',(Path(self.temp.name)/'config.json').read_text());self.assertNotIn('test-secret',json.dumps(self.j('/api/state')))
+        self.j('/api/config',{'key':'test-secret','pixellab_keys':'pixel-secret-1\npixel-secret-2'});config=(Path(self.temp.name)/'config.json').read_text();state=json.dumps(self.j('/api/state'))
+        self.assertNotIn('test-secret',config);self.assertNotIn('pixel-secret',config);self.assertNotIn('test-secret',state);self.assertNotIn('pixel-secret',state)
         self.j('/api/config',{'key':''});self.assertFalse(self.j('/api/state')['has_key'])
     def test_import_then_auto_requires_api(self):
         data=(resources()/'data/references/antigo_1457.zip').read_bytes();self.j('/api/import',{'name':'antigo.zip','data':base64.b64encode(data).decode()});self.assertEqual(self.j('/api/state')['source']['look'],1457)
         with self.assertRaises(HTTPError):self.j('/api/convert',{'look':2401})
+    def test_codex_is_not_misrepresented_as_image_api(self):
+        self.j('/api/config',{'provider':'codex'})
+        with self.assertRaises(HTTPError) as e:self.j('/api/create',{'prompt':'Cavaleiro com escudo e espada','look':2005,'idle':1,'walk':1,'z':1})
+        self.assertEqual(e.exception.code,400)
     def test_create_http_endpoint(self):
         with FakeProvider() as fake:
             self.j('/api/config',{'key':'test-key','base_url':fake.url});self.j('/api/create',{'prompt':'Cavaleiro de bronze com arma e escudo','look':2003,'idle':1,'walk':1,'z':1});self.wait();s=self.j('/api/state');self.assertTrue(s['validation']['ok']);self.assertEqual(s['result']['look'],2003)
+            self.assertEqual(list(s['result']['metadata']['stage_approvals']),['Base','Helmet','Armor','Legs','Boots','Shield','Weapon'])
+            self.assertTrue(all(v['approved_by']=='user' for v in s['result']['metadata']['stage_approvals'].values()))
+            # A IA fornece desenho e contorno próprios dentro da margem segura da
+            # pose; exigir o alpha Golden exato faria a criação apenas copiá-lo.
+            out=self.server.state.result;guide=reference()
+            for p in out.poses():
+                gp=(min(p[0],max(guide.groups)),p[1]%8,p[2],p[3]%2)
+                for y in range(7):
+                    generated=out.get(p,y)[:,:,3]>0;allowed=ndi.binary_dilation(guide.get(gp,y)[:,:,3]>0,iterations=2)
+                    self.assertTrue(generated.any(),(p,y));self.assertFalse(np.any(generated & ~allowed),(p,y))
+    def test_create_with_pixellab_provider(self):
+        with FakeProvider() as fake:
+            self.j('/api/config',{'provider':'pixellab','pixellab_base_url':fake.url,'pixellab_keys':'empty-credit\nbackup-key','max_calls':200})
+            self.j('/api/create',{'prompt':'Cavaleiro isométrico com arma e escudo','look':2004,'idle':1,'walk':1,'z':1});self.wait()
+            s=self.j('/api/state');self.assertEqual(s['result']['metadata']['engine'],'sequential_creation');self.assertEqual(s['source']['metadata']['origin'],'creation_pose_guide');self.assertTrue(s['validation']['ok'])
+    def test_pixellab_shows_first_sample_before_more_spending(self):
+        with FakeProvider() as fake:
+            self.j('/api/config',{'provider':'pixellab','pixellab_base_url':fake.url,'pixellab_keys':'backup-key','max_calls':200})
+            self.j('/api/create',{'prompt':'Cavaleiro para aprovar primeiro','look':2008,'idle':1,'walk':1,'z':1})
+            limit=time.time()+10
+            while time.time()<limit and self.j('/api/job')['status']!='awaiting_approval':time.sleep(.05)
+            job=self.j('/api/job');self.assertEqual(job['review_kind'],'sample');self.assertIn('Base',job['stage'])
+            self.assertEqual(len([c for c in fake.calls if c[0]=='/generate-image-bitforge']),1)
+            raw,_=self.request('/api/export_checkpoint');self.assertEqual(read_package(raw).look,2008)
+            self.j('/api/approve_stage',{'approved':True})
+            while time.time()<limit and (self.j('/api/job')['status']!='awaiting_approval' or self.j('/api/job').get('review_kind')!='pose'):time.sleep(.05)
+            job=self.j('/api/job');self.assertEqual(job['review_kind'],'pose');self.assertEqual(len([c for c in fake.calls if c[0]=='/generate-image-bitforge']),2)
+            self.j('/api/approve_stage',{'approved':False});self.server.state.worker.join(5);self.assertEqual(self.j('/api/job')['status'],'cancelled')
 
 # Mantido separado para não poluir os contratos de produção.
 from urllib.parse import urlencode
