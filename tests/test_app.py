@@ -122,6 +122,16 @@ class GoldenTests(unittest.TestCase):
         p=Path(self.temp.name)/'source.zip';source=reference('antigo_1457.zip');write_source(source,p);self.assertEqual(fingerprint(source),fingerprint(read_package(p)))
 
 class GuardTests(unittest.TestCase):
+    def test_import_pixellab_export_uses_native_cardinal_rotations(self):
+        b=io.BytesIO();directions=['south','south-east','east','north-east','north','north-west','west','south-west']
+        manifest={'group_id':'group-safe','states':[{'character':{'id':'character-safe','size':{'width':64,'height':64}},'frames':{'rotations':{d:f'Idle/rotations/{d}.png' for d in directions},'animations':{}}}],'export_version':'3.1'}
+        with zipfile.ZipFile(b,'w') as z:
+            z.writestr('manifest.json',json.dumps(manifest))
+            for i,direction in enumerate(directions):
+                a=blank();a[20:24,20+i:24+i]=[20+i,80,120,255];z.writestr(f'Idle/rotations/{direction}.png',png(a))
+        outfit=read_package(b.getvalue());self.assertTrue(outfit.modular());self.assertEqual(outfit.metadata['origin'],'pixellab_export')
+        self.assertEqual([int(outfit.get((1,0,d,0))[20,:,3].sum()) for d in range(4)],[1020]*4)
+        self.assertTrue(outfit.notes[-1].startswith('Importação PixelLab:'))
     def test_path_traversal(self):
         b=io.BytesIO()
         with zipfile.ZipFile(b,'w') as z:z.writestr('../bad.png',b'x')

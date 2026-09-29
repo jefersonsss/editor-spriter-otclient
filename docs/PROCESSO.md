@@ -31,6 +31,8 @@ O modo padrão pausa também depois de cada resposta PixelLab, publica exatament
 
 Na integração PixelLab, cada chamada recebe um pedido próprio para exatamente um sprite 64×64. O contrato de atlas 1024×1024 usado pela OpenAI não é enviado à PixelLab. Se a API devolver um personagem inteiro quando foi solicitado somente um addon, o resultado é rejeitado antes de entrar no projeto, em vez de ser reduzido até virar pixels desconexos.
 
+Um ZIP nativo PixelLab 3.x também pode ser aberto em **Importar outfit**. O manifesto é validado, as quatro rotações cardinais 64×64 são carregadas como Base e o resultado ganha a estrutura modular do Forge. O LookType provisório é 2000 e deve ser ajustado antes da exportação final.
+
 A grade rígida é uma exigência enviada à API, não uma garantia matemática de que o modelo desenhará corretamente. Formato/dimensões são verificados; anatomia, coerência de animação, segmentação e detalhes artísticos exigem inspeção das prévias. O aplicativo permite editar PNGs nativos sem alterar outros frames.
 
 ## Saída
